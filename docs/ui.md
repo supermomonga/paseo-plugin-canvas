@@ -50,7 +50,7 @@ Paseo本体の [docs/design.md](https://github.com/getpaseo/paseo/blob/f22a37e61
 
 折りたたみには常時ボタンの外観と開閉アイコンを付ける。脚注・見出しリンクは下線で識別でき、閉じた領域への移動時は該当領域を開く。表と大きな数式は横スクロールし、画像は本文幅に収める。タスクは読み取り専用として表示する。
 
-ライブラリ選定: react-native-markdown-displayは保守終了、後継enriched-markdownはホスト側へのネイティブモジュール導入が必要。react-markdownはDOM向けで、単独ではiOS/Androidの表示に使えない。このためremarkを解析に採用し、表示は公開SDK・helper・React Nativeで実装する。MermaidはMITライセンスの `paseo-plugin-mermaid` から取り込んだパーサーと配置処理を使い、React NativeのViewとTextで描画する。対応範囲はフローチャート・シーケンス図の一部に限り、未対応記法を含む図は理由と原文を表示する。数式はサーバー側のMathJaxとresvg WASMでPNG化する。Chromium・WebView・DOM・追加ネイティブモジュールは必要ない。
+ライブラリ選定: react-native-markdown-displayは保守終了、後継enriched-markdownはホスト側へのネイティブモジュール導入が必要。react-markdownはDOM向けで、単独ではiOS/Androidの表示に使えない。このためremarkを解析に採用し、表示は公開SDK・helper・React Nativeで実装する。MermaidはMITライセンスの `paseo-plugin-mermaid` から取り込んだパーサーと配置処理を使い、React NativeのViewとTextで描画する。対応範囲はフローチャート・シーケンス図の一部に限り、未対応記法を含む図は理由と原文を表示する。数式はサーバー側のMathJaxとresvg WASMでPNG化する。描画にChromium・WebView・追加ネイティブモジュールは必要ない。
 
 ## 図の操作と両プラットフォーム対応
 
@@ -59,3 +59,5 @@ Mermaidの縮小・拡大・全体を収める・ポップアップ・コード�
 描画はReact NativeのView・Text、操作はPanResponderを使う。通常サイズで図が収まるときは1本指の移動を奪わず本文スクロールに任せ、図がはみ出す方向のドラッグを処理する。2本指で倍率と位置を変えられる。表示領域の幅・高さが変わると図全体を収め直す。図の文字は配置と線の関係を保つためOSの文字倍率では変えず、図のズームで拡大する。本文や操作ラベルはこの制限の対象外。
 
 Electron向けとスマホ向けに異なる描画方式を持たない。製品クライアントはReact・React Native公開API・Paseo公開SDK・helperに依存する。開発用fixtureでのみ使う `react-native-svg` は製品クライアントには含まれない。自動検証ではweb・ios・android設定で描画とPanResponderの入力を確認するが、モック検証は実機のタッチ応答やPaseoのシート内ジェスチャーとの競合を保証しない。
+
+Electron／Webの描画エリアでは、Viewの公開refから取得した要素だけにホイールリスナーを登録する。ReactのonWheelはpassiveで本文スクロールを抑止できないため、`passive: false` を指定し、ポインター位置を中心に拡大縮小する。リスナーはサイズ変更時・アンマウント時に解除する。Web固有の処理は `Platform.OS === "web"` に限定し、iOS／Androidでは実行しない。ツールバーや本文上の通常スクロールには介入しない。

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PanResponder, Text, View } from "react-native";
+import { PanResponder, Platform, Text, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
 import { MermaidPopup } from "./popup";
 import { Button, CodeBlock } from "paseo-plugin-helper/client";
@@ -139,6 +139,34 @@ function pinch(event: GestureResponderEvent) {
   };
 }
 
+// React Native Web exposes the rendered element through View's public ref.
+// Structural types keep DOM libraries out of the native client type contract.
+interface WheelInput {
+  deltaY: number;
+  deltaMode: number;
+  clientX: number;
+  clientY: number;
+  preventDefault(): void;
+  stopPropagation(): void;
+}
+interface WheelTarget {
+  addEventListener(
+    type: "wheel",
+    listener: (event: WheelInput) => void,
+    options: { passive: false },
+  ): void;
+  removeEventListener(
+    type: "wheel",
+    listener: (event: WheelInput) => void,
+  ): void;
+  getBoundingClientRect(): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+}
+
 export function DiagramViewport({
   model,
   theme,
@@ -166,6 +194,7 @@ export function DiagramViewport({
     () => ({ width: model.width, height: model.height }),
     [model.width, model.height],
   );
+  const viewportRef = useRef<View>(null);
   const [transform, setTransform] = useState(() => fitted(content, size));
   const current = useRef(transform);
   const start = useRef({
@@ -180,6 +209,38 @@ export function DiagramViewport({
   }
   useEffect(() => {
     commit(fitted(content, size));
+  }, [content, size]);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const target = viewportRef.current as unknown as WheelTarget | null;
+    if (!target) return;
+    const onWheel = (event: WheelInput) => {
+      if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+      const rect = target.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      // React's onWheel is passive; a local non-passive listener is needed to
+      // prevent document scrolling (or browser pinch zoom) over the drawing.
+      event.preventDefault();
+      event.stopPropagation();
+      const unit =
+        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? size.height : 1;
+      const delta = Math.max(-240, Math.min(240, event.deltaY * unit));
+      const point = {
+        x: ((event.clientX - rect.left) * size.width) / rect.width,
+        y: ((event.clientY - rect.top) * size.height) / rect.height,
+      };
+      commit(
+        zoomAt(
+          current.current,
+          current.current.scale * Math.exp(-delta * 0.002),
+          point,
+          content,
+          size,
+        ),
+      );
+    };
+    target.addEventListener("wheel", onWheel, { passive: false });
+    return () => target.removeEventListener("wheel", onWheel);
   }, [content, size]);
   const responder = useMemo(
     () =>
@@ -346,8 +407,13 @@ export function DiagramViewport({
         )}
       </View>
       <View
+        ref={viewportRef}
         testID="mermaid-viewport"
-        accessibilityLabel="Mermaid図。拡大後はドラッグ、または2本指で拡大縮小・移動できます。"
+        accessibilityLabel={
+          Platform.OS === "web"
+            ? "Mermaid図。ホイールまたは2本指で拡大縮小し、拡大後はドラッグで移動できます。"
+            : "Mermaid図。2本指で拡大縮小し、拡大後はドラッグで移動できます。"
+        }
         pointerEvents="box-only"
         {...responder.panHandlers}
         onLayout={(event) => {
@@ -390,7 +456,9 @@ export function DiagramViewport({
           padding: 8,
         }}
       >
-        拡大後はドラッグで移動 · タッチ操作は2本指で拡大縮小
+        {Platform.OS === "web"
+          ? "ホイールまたは2本指で拡大縮小 · ドラッグで移動"
+          : "2本指で拡大縮小 · 拡大後はドラッグで移動"}
       </Text>
     </View>
   );

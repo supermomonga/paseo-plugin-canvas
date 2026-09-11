@@ -639,11 +639,9 @@ test.each(["web", "ios", "android"] as const)(
     const popup = tree.root.findByProps({ testID: "mermaid-popup" });
     expect(popup.props.style).toMatchObject({ flex: 1, margin: 12 });
     await act(async () =>
-      tree.root
-        .findByProps({ testID: "mermaid-popup-body" })
-        .props.onLayout({
-          nativeEvent: { layout: { width: 950, height: 640 } },
-        }),
+      tree.root.findByProps({ testID: "mermaid-popup-body" }).props.onLayout({
+        nativeEvent: { layout: { width: 950, height: 640 } },
+      }),
     );
     const diagram = popup.findByType(DiagramViewport);
     expect(diagram.props.height).toBeUndefined();
@@ -677,6 +675,131 @@ test.each(["web", "ios", "android"] as const)(
     expect(tree.root.findAllByProps({ testID: "mermaid-popup" })).toHaveLength(
       0,
     );
+    await act(async () => tree.unmount());
+  },
+);
+
+test("wheel zoom is local, follows the pointer, normalizes wheel units and cleans up", async () => {
+  const { DiagramViewport } = await import("../client/mermaid/viewer");
+  const { diagramModel } = await import("../shared/mermaid/model");
+  let listener: ((event: any) => void) | undefined;
+  const target = {
+    addEventListener: vi.fn((_type, callback) => {
+      listener = callback;
+    }),
+    removeEventListener: vi.fn((_type, callback) => {
+      if (listener === callback) listener = undefined;
+    }),
+    getBoundingClientRect: () => ({
+      left: 200,
+      top: 100,
+      width: 600,
+      height: 440,
+    }),
+  };
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <PluginThemeProvider theme={theme}>
+        <DiagramViewport
+          model={diagramModel(
+            "flowchart LR\nA[Planning] --> B[Review] --> C[Implementation] --> D[Verification]",
+          )}
+          theme={theme}
+          width={300}
+          height={220}
+        />
+      </PluginThemeProvider>,
+      {
+        createNodeMock: (element) =>
+          (element.props as { testID?: string }).testID === "mermaid-viewport"
+            ? target
+            : null,
+      },
+    );
+  });
+  expect(target.addEventListener).toHaveBeenCalledWith(
+    "wheel",
+    expect.any(Function),
+    { passive: false },
+  );
+  const drawing = () =>
+    tree.root
+      .findByProps({ testID: "mermaid-viewport" })
+      .findAllByType("View" as never)[1].props.style;
+  await act(async () => {
+    for (let n = 0; n < 3; n++) button(tree, "拡大").props.onPress();
+  });
+  const before = drawing();
+  const event = (deltaY: number, deltaMode = 0) => ({
+    deltaY,
+    deltaMode,
+    clientX: 500,
+    clientY: 320,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+  });
+  const up = event(-120);
+  await act(async () => listener!(up));
+  expect(up.preventDefault).toHaveBeenCalledOnce();
+  expect(up.stopPropagation).toHaveBeenCalledOnce();
+  expect(drawing().transform[0].scale).toBeCloseTo(
+    before.transform[0].scale * Math.exp(0.24),
+  );
+  expect((150 - drawing().left) / drawing().transform[0].scale).toBeCloseTo(
+    (150 - before.left) / before.transform[0].scale,
+  );
+  await act(async () => listener!(event(120)));
+  expect(drawing().transform[0].scale).toBeCloseTo(before.transform[0].scale);
+  await act(async () => listener!(event(-3, 1)));
+  expect(drawing().transform[0].scale).toBeCloseTo(
+    before.transform[0].scale * Math.exp(3 * 16 * 0.002),
+  );
+  const horizontal = event(0);
+  await act(async () => listener!(horizontal));
+  expect(horizontal.preventDefault).not.toHaveBeenCalled();
+  await act(async () => {
+    for (let n = 0; n < 20; n++) listener!(event(-1, 2));
+  });
+  expect(drawing().transform[0].scale).toBe(4);
+  const atLimit = event(-100);
+  await act(async () => listener!(atLimit));
+  expect(atLimit.preventDefault).toHaveBeenCalledOnce();
+  const previous = listener;
+  await act(async () =>
+    tree.root
+      .findByProps({ testID: "mermaid-viewport" })
+      .props.onLayout({ nativeEvent: { layout: { width: 200, height: 220 } } }),
+  );
+  expect(target.removeEventListener).toHaveBeenCalledWith("wheel", previous);
+  const current = listener;
+  await act(async () => tree.unmount());
+  expect(target.removeEventListener).toHaveBeenCalledWith("wheel", current);
+  expect(listener).toBeUndefined();
+});
+
+test.each(["ios", "android"] as const)(
+  "%s does not access Web wheel APIs",
+  async (platform) => {
+    nativePlatform.OS = platform;
+    const { DiagramViewport } = await import("../client/mermaid/viewer");
+    const { diagramModel } = await import("../shared/mermaid/model");
+    const add = vi.fn();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <PluginThemeProvider theme={theme}>
+          <DiagramViewport
+            model={diagramModel("flowchart LR\nA-->B")}
+            theme={theme}
+            width={300}
+            height={220}
+          />
+        </PluginThemeProvider>,
+        { createNodeMock: () => ({ addEventListener: add }) },
+      );
+    });
+    expect(add).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
   },
 );
