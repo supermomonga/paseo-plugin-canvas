@@ -70,4 +70,4 @@ Restrict external navigation to HTTP, HTTPS and mailto. Resolve supported relati
 
 ## More Information
 
-See [parser](../../server/document.ts), [shared tree contract](../../shared/document.ts), [image validation](../../server/images.ts) and [supported syntax](../../README.md#機能). Revisit the renderer if a publicly exposed host component satisfies the feature and sanitization contract; a library name alone is not evidence of native compatibility.
+See [parser](../../server/document.ts), [shared tree contract](../../shared/document.ts), [image validation](../../server/images.ts) and [supported syntax](../../README.md#markdown-support). Revisit the renderer if a publicly exposed host component satisfies the feature and sanitization contract; a library name alone is not evidence of native compatibility.

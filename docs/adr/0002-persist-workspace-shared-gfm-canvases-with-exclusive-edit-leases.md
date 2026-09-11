@@ -78,4 +78,4 @@ Serialize document mutations and use a `proper-lockfile` lease to give one plugi
 
 ## More Information
 
-See [storage implementation](../../server/store.ts), [storage paths](../../server/paths.ts), [document format](../../server/format.ts) and [operational details](../../README.md#保存). Revisit this decision if collaborative user editing, external-editor synchronization or a distributed storage backend becomes a requirement.
+See [storage implementation](../../server/store.ts), [storage paths](../../server/paths.ts), [document format](../../server/format.ts) and [operational details](../../README.md#storage). Revisit this decision if collaborative user editing, external-editor synchronization or a distributed storage backend becomes a requirement.

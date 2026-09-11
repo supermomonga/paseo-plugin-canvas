@@ -1,167 +1,187 @@
 # paseo-canvas
 
-Paseoのワークスペース内で共有する、Markdown（GFM）専用のCanvasプラグインです。同じワークスペースの複数エージェントが、プロジェクト内に文書ファイルを作らずに実装プランや調査メモを共有できます。
+**Shared Markdown documents for agents in the same Paseo workspace.**
 
-UI・通知・エラー・アクセシビリティ用の文言は英語固定です。言語切り替えやPaseoの言語設定への追従は行いません。Canvasのタイトル・本文は任意の言語で記述できます。
+Let one agent write an implementation plan and another read it in a separate session. Keep multiple canvases per workspace, preview them in Paseo, and persist them outside your project directory.
 
-## 利用条件
+[Get started](#get-started) · [Usage](#usage) · [Markdown support](#markdown-support) · [MCP tools](#mcp-tools) · [Development](#development)
 
-- Paseo Plugin SDK 0.8.0、Node.js 22.22以降、npm 11以降。
-- **リリース版Paseo 0.8.0以降に対応し、本体パッチは不要です。** 公開 `agent.create` フックでMCPを登録します。
-- 対象はプラグイン導入後に新規作成したエージェントと、その後の再開です。導入前の既存エージェントや、外部から直接取り込んだセッションへの後付けは行いません。
-- 使用するプロバイダーがHTTP MCP接続に対応している必要があります。直接実装のカスタムプロバイダーは `session.open.config.mcpServers` のURL・headersを接続先エージェントへ転送してください。
+## Features
+
+- **Workspace sharing:** multiple documents shared by agents in the same workspace.
+- **Preview and source views:** GFM, alerts, footnotes, images, selected Mermaid diagrams, and mathematics.
+- **Visible editing ownership:** renewable locks and revision checks prevent conflicting writes while other agents continue reading.
+- **Automatic updates:** list, document, and lock state refresh when changes occur, without reload buttons.
+- **Persistent storage:** documents survive restarts without creating files in the project tree.
+- **Paseo integration:** a shared React Native UI built with public SDK components and `paseo-plugin-helper`, adapting to wide and compact panels.
+
+The panel is **read-only**; agents create and edit canvases through MCP. Plugin UI, notifications, and errors are in English. Document content can use any language.
+
+## Get started
+
+### Requirements
+
+- Paseo **0.8.0 or later**, with plugins enabled on the target daemon. No core patch is required.
+- Node.js **22.22+** and npm **11+** on the daemon host.
+- An agent provider supporting **HTTP MCP**. Custom providers must forward `session.open.config.mcpServers`, including its URL and headers, to the underlying agent.
+
+### Install from a local checkout
+
+From the repository directory on the daemon host:
 
 ```sh
 npm ci
 npm run setup
 npm run check
-```
-
-このディレクトリをPaseoのプラグインとしてインストールしてください。
-
-```sh
 paseo plugin add .
 ```
 
-プラグインのグローバル有効化はPaseoの設定に従います。インストール済みの場合は `paseo plugin reload paseo-canvas` でコードをリロードした後、**新しいエージェントを作成**してください。本体の変更・デーモンの再起動は不要です。Canvas文書はそのまま保持します。
+Setup embeds rendering WASM and fonts; it does not download or launch Chromium. The plugin manifest also declares dependency installation and setup as build steps for Git-based installation and updates.
 
-## 機能
+> [!IMPORTANT]
+> Create a **new agent after installing or enabling the plugin**. MCP registration happens during agent creation and is retained for subsequent resumes. Existing agents and sessions imported directly from another agent product are not retrofitted.
 
-- ワークスペースごとの複数Canvas、一覧、プレビュー／コード切り替え、本文コピー。
-- CommonMark/GFMの見出し、表、タスクリスト、取り消し線、コード、引用、参照リンク。入れ子とリンク内の装飾を保持します。
-- GitHub形式のアラート5種類、脚注と戻りリンク、日本語・重複見出しへの文書内リンク、絵文字ショートコード。
-- Mermaidのフローチャート・シーケンス図の一部記法。React Nativeの部品で表示し、拡大・縮小・全体を収める操作・ドラッグ・2本指のピンチ操作に対応します。未対応の記法を含む図は、その理由と原文を表示します。
-- 行内・ブロック数式。デーモン側のMathJaxとresvg WASMでPNG化します。ChromiumやWebViewは使用しません。
-- Markdown内のHTMLは `details` / `summary` / `br` / `sub` / `sup` のみ表示に使用し、HTMLコメントは隠します。任意のHTMLやスクリプトは実行しません。HTML形式のCanvasは扱いません。
-- HTTP・HTTPSの画像と、ワークスペースのルートを基準にした相対パスのPNG・JPEG・GIF・WebP画像を表示します。ローカル画像は5 MB以下、ワークスペース外へのパス・シンボリックリンクは拒否します。外部画像は閲覧クライアントから取得します。
-- 外部リンクはHTTP・HTTPS・mailtoに対応。見出し・脚注リンクは文書内を移動し、移動先を含む折りたたみを開きます。GitHubのユーザー通知・Issue参照・コミット展開は対象外です。
-- 編集者、取得日時、最終延長日時、有効期限を表示。所有者は認証済みセッションから決定します。
-- ユーザー向けパネルは参照専用です。作成・編集・削除はMCPでエージェントが行います。
-- 一覧・詳細は作成・更新・削除・ロック変更（期限切れを含む）で自動更新します。リロードボタンはありません。既存RPCで変更を待つロングポーリング方式を使い、変更がない間は文書を再取得しません。通信エラーは自動再試行し、復帰時に最新状態を取得します。
+After updating an installed local checkout:
 
-## UI方針
-
-Paseo本体の `docs/design.md` と標準パネルを基準にしています。広い画面は一覧と本文を左右に配置し、狭い画面は一覧から本文へ移動します。ヘッダーと操作列の高さ・文字の行高を揃え、操作ボタンには枠とアイコンを常時表示します。コピー結果はPaseoの通知、タイトル全文・ID・ロック時刻は標準Modalの詳細表示にまとめています。
-
-適用した規則、参照箇所、SDKに公開されていない文字サイズ設定などの制約は [docs/ui.md](docs/ui.md) に記載しています。
-
-## エージェント向けツール
-
-| ツール          | 主な引数                                                         | 用途                               |
-| --------------- | ---------------------------------------------------------------- | ---------------------------------- |
-| `canvas.list`   | なし                                                             | 所属ワークスペースの一覧と編集状態 |
-| `canvas.get`    | `canvasId`                                                       | 本文・revision・編集状態           |
-| `canvas.create` | `title`, `content`                                               | GFM文書を作成                      |
-| `lock.acquire`  | `canvasId`                                                       | 排他的な編集権を取得               |
-| `lock.renew`    | `canvasId`, `lockToken`                                          | 編集権を延長                       |
-| `canvas.update` | `canvasId`, `lockToken`, `expectedRevision`, `title` / `content` | 文書を更新                         |
-| `lock.release`  | `canvasId`, `lockToken`                                          | 編集権を解放                       |
-| `canvas.delete` | `canvasId`, `lockToken`, `expectedRevision`                      | 文書を明示削除                     |
-
-ロックは5分間有効です。長時間の編集では期限前に `lock.renew` を呼び、作業後に解放してください。競合時は `canvas.get` で再取得します。自動マージ・無条件上書きはしません。編集中でも他セッションからの読み取りは可能です。
-
-`canvas.list` と `canvas.get` の `editState` は次のどちらかです。`observedAt` は応答直下のサーバー判定時刻です。
-
-```json
-{ "status": "unlocked" }
+```sh
+npm ci
+npm run setup
+paseo plugin reload paseo-canvas
 ```
 
-```json
-{
-  "status": "locked",
-  "lock": {
-    "id": "public-lock-id",
-    "ownerAgentId": "agent-id",
-    "ownerAgentTitle": null,
-    "acquiredAt": "2026-09-11T09:00:00.000Z",
-    "renewedAt": "2026-09-11T09:01:00.000Z",
-    "expiresAt": "2026-09-11T09:06:00.000Z"
-  }
-}
-```
+If upgrading from the earlier implementation that required a core patch, create a new agent afterward. Existing canvas documents are retained. Loading plugin changes does not require a daemon restart.
 
-公開ロックIDと秘密の `lockToken` は別です。list/getにトークンは含めません。延長では取得日時を維持し、再取得ではIDと取得日時を更新します。ロック操作だけでは本文のrevisionを増やしません。
+## Usage
 
-## 保存
+1. Open a Paseo workspace and choose **Open Canvas** from the Command Center.
+2. In a newly created agent session, ask: “Create a Markdown canvas named Implementation plan with the proposed steps and verification checklist.”
+3. Read the result in **Preview**, or switch to **Code** to inspect and copy the original Markdown.
+4. Start another agent in the **same workspace** and ask it to read the canvas and implement the plan.
 
-Paseoデーモンが動くマシンに保存します。
+Both agents see the same documents. Editing ownership remains visible, and changes appear automatically. Wide panels show a list/detail split; compact panels navigate between those views.
 
-| OS      | 保存ルート                                                                              |
-| ------- | --------------------------------------------------------------------------------------- |
-| Linux   | `$XDG_DATA_HOME/paseo-canvas`（未設定・空・相対パスなら `~/.local/share/paseo-canvas`） |
-| macOS   | `~/Library/Application Support/paseo-canvas`                                            |
-| Windows | `%LOCALAPPDATA%\paseo-canvas`                                                           |
+## Markdown support
+
+| Content | Supported behavior |
+| --- | --- |
+| CommonMark and GFM | Headings, nested lists, quotes, links, tables, task lists, strikethrough, and code blocks. Tasks are read-only. |
+| GitHub-style extensions | Five alert types (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`), footnotes with return links, emoji shortcodes, and heading anchors including Japanese and duplicate headings. |
+| Embedded HTML | Only `details`, `summary`, `br`, `sub`, and `sup` participate in rendering. Comments are hidden; other raw HTML appears as text. Scripts are never executed. |
+| Images | HTTP/HTTPS images and workspace-relative PNG, JPEG, GIF, and WebP files. Local images are limited to 5 MB; escaping paths and symlinks are rejected. |
+| Mathematics | Inline and block TeX rendered as PNG by MathJax and resvg WASM on the daemon, with bundled Japanese fonts. |
+| Mermaid | A subset of flowcharts and sequence diagrams, with zoom, pan, fit-to-view, and diagram/source popups. |
+
+Standalone HTML canvases, GitHub mention notifications, issue-reference expansion, and commit-data previews are outside scope. Source view preserves the original Markdown and does not provide syntax highlighting. External images are fetched by the viewing client and can contact third-party hosts.
+
+### Mermaid limitations
+
+Flowcharts support TD/TB/BT/LR/RL directions, selected node shapes, labeled connections, and solid/dashed/thick lines. Sequence diagrams support participants, actors, messages, self-messages, and selected notes. Write one declaration or connection per line.
+
+**Full Mermaid syntax is not supported.** Unsupported constructs include `subgraph`, `style`, `classDef`, `click`, configuration directives, and sequence blocks such as `loop`, `alt`, and `activate`. Unsupported syntax produces an explanation and the original source instead of a partial diagram.
+
+Zoom up to 400%, drag to pan, or pinch with two fingers. Electron/Web also supports mouse-wheel zoom inside the drawing area. Input and layout limits bound rendering work; see the [diagram model](shared/mermaid/model.ts) and [UI guidance](docs/ui.md).
+
+## MCP tools
+
+The server derives agent/workspace identity from the credential. Tools cannot select another workspace or impersonate an editor through their arguments.
+
+| Tool | Main arguments | Purpose |
+| --- | --- | --- |
+| `canvas.list` | None | List canvases and editing state. |
+| `canvas.get` | `canvasId` | Read content, revision, and editing state. |
+| `canvas.create` | `title`, `content` | Create a persistent GFM document. |
+| `lock.acquire` | `canvasId` | Acquire an exclusive five-minute edit lease. |
+| `lock.renew` | `canvasId`, `lockToken` | Extend the current lease. |
+| `canvas.update` | `canvasId`, `lockToken`, `expectedRevision`, `title` and/or `content` | Save changes. |
+| `lock.release` | `canvasId`, `lockToken` | Release the current lease. |
+| `canvas.delete` | `canvasId`, `lockToken`, `expectedRevision` | Permanently delete a canvas. |
+
+For an edit, read the canvas, acquire its lock, update using the current revision and returned `lockToken`, then release the lock. Renew before the five-minute lease expires. On a conflict, read the current state again; there is no automatic merge or unconditional overwrite.
+
+The public lock ID differs from the secret `lockToken`. List/get expose the owner and lease timestamps but never the secret. Lock changes do not increment the document revision. Reads remain available during editing.
+
+## Storage
+
+Data lives on the **Paseo daemon host**, outside the project directory.
+
+| Host OS | Data root |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/paseo-canvas` when `XDG_DATA_HOME` is absolute; otherwise `~/.local/share/paseo-canvas`. |
+| macOS | `~/Library/Application Support/paseo-canvas`. |
+| Windows | `%LOCALAPPDATA%\paseo-canvas`. See [validation status](#validation-status). |
 
 ```text
-<保存ルート>/hosts/<hostKey>/<workspaceId>/<canvasId>.md
+<data-root>/hosts/<host-key>/
+├── mcp.json
+└── <workspace-id>/
+    └── <canvas-id>.md
 ```
 
-`hostKey` は実効 `PASEO_HOME`（既定 `~/.paseo`）の実パスのSHA-256です。Paseoホームを移動すると保存領域も変わるため、明示的にデータを移行してください。
+The host key is a SHA-256 hash of the canonical `PASEO_HOME` path, defaulting to `~/.paseo`. Moving that home requires migrating the associated documents and `mcp.json` together.
 
-文書のUTF-8 Markdownファイルには、先頭のYAML frontmatterとして `schemaVersion`, `workspaceId`, `canvasId`, `title`, `revision`, `createdAt`, `updatedAt`, `updatedByAgentId` を保存します。その後にGFM本文をそのまま保存し、APIと画面表示には管理用frontmatterを除いた本文を渡します。保存ファイルを外部から読むことはできますが、外部エディターとの同時書き込みには対応しません。
+Markdown files store identity, revision, timestamps, and attribution in YAML frontmatter; APIs and source view expose the body without this metadata. Writes require a temporary file, synchronization, atomic replacement, and directory synchronization. Corrupt data and uncertain durable writes produce errors instead of empty replacement documents.
 
-同じディレクトリへの一時ファイル書き込み、ファイル同期、置換、ディレクトリ同期を完了してから成功を応答します。解析・読み書きに失敗しても空の文書で上書きしません。置換後の同期失敗では保存結果が確定できないため、そのストアへの以降の書き込みを停止します。
+A `proper-lockfile` lease gives one plugin process ownership of the storage area. After a crash, the owner lease becomes stale after 30 seconds; startup waits for recovery. Local disks are the storage model. Concurrent external editing and network shares are unsupported.
 
-文書は再起動やワークスペースのアーカイブ後も保持します。編集ロックはメモリだけで管理し、再起動で失効します。MCPの接続情報は後述のとおり永続化します。保存領域のプロセス間排他には `proper-lockfile` を使います。5秒ごとに更新し、強制終了後は30秒で期限切れと判定します。起動時は最大35回、1秒間隔で所有権取得を待ちます。排他の喪失を検出したプロセスは以降の操作を拒否します。ローカルディスクを前提とし、ネットワーク共有や外部プログラムによる同時更新は対象外です。
+Documents survive plugin/daemon restarts and workspace archival. **Edit leases are memory-only and expire on restart.** MCP bindings are persisted separately.
 
-## MCP接続の範囲
+## MCP connection and access
 
-MCPは `127.0.0.1` だけで待ち受けます。初回に空きポートを確保し、ホストの保存領域直下の `mcp.json` に保存します。以後は同じポートで起動するため、Paseo・プラグイン・OSの再起動後も保存済みのURLを使用できます。他のプロセスがそのポートを占有している場合は起動に失敗します。別ポートへの自動変更はしません。
+The public `agent.create` hook adds Canvas to Paseo's per-agent MCP configuration. The first interactive `agent.session_open` binds the registration to authoritative agent/workspace IDs and removes the temporary registration environment variable before provider launch. Global and project-level agent configuration files are not changed.
 
-`agent.create` でエージェントごとの認証トークンを発行し、URLとAuthorizationヘッダーをPaseoのエージェント設定へ保存します。最初の `agent.session_open` で、Paseoが確定したagentId・workspaceIdと関連付けます。この受け渡し用の環境変数はフック内で除去し、プロバイダーの実行環境へは渡しません。ユーザー／プロジェクト共通のMCP設定ファイルは変更しません。
+MCP listens only on `127.0.0.1`. Its initially allocated port is saved and reused after restart. Paseo's agent configuration stores the raw bearer token; the plugin's `mcp.json` stores its hash, identity binding, and active state with mode `0600`. Authorization writes are synchronized; persistence failures make access unavailable.
 
-プラグイン側の `mcp.json` には認証トークンのSHA-256ハッシュ、agentId・workspaceId、有効状態、編集セッションIDを保存し、トークンそのものは保存しません。ファイル権限は0600、保存領域のプロセス間排他とファイル同期・置換を使います。破損・保存失敗時には操作を拒否し、空の状態に置き換えません。エージェントのアーカイブで認証を無効化し、登録済みエージェントの対話セッション再開で再び有効にします。再開時は編集セッションIDを更新します。履歴取得だけの起動では認証を新規発行・再有効化しませんが、Paseoに保存されたMCP設定自体は履歴取得用プロバイダーにも渡り得ます。
+Archiving disables the binding. Resuming a registered interactive agent reactivates it with a new edit-session ID. History-only openings do not issue or reactivate credentials, although Paseo may still pass the saved descriptor to the history provider. Unauthenticated, inactive, and browser-Origin requests are rejected.
 
-無認証、未登録・無効化済みの認証情報、ブラウザーOrigin付き要求を拒否します。トークンから所属を決定するため、MCPの引数で他のワークスペースを指定できません。
+Normal launches outside Paseo receive no automatic Canvas registration. This is not isolation from code running as the same OS user that deliberately copies credentials.
 
-Paseo外で通常起動したエージェントには登録しません。同じOSユーザー権限のコードからの隔離を提供するものではなく、Paseoに保存された認証情報を明示的にコピーすれば利用できます。認証情報をグローバル設定へ転記しないでください。
+### Troubleshooting
 
-プラグインを無効化・削除するとMCPは利用できなくなりますが、Paseoの既存エージェント設定にあるMCP登録は残ります。Canvasを使わずに継続する場合は、プラグインを無効化した後に新しいエージェントを作成してください。Paseoホームの移動時は文書に加えて `mcp.json` も移行する必要があります。
+| Symptom | What to check |
+| --- | --- |
+| Canvas tools are missing | Create a new agent after installation, confirm plugins are enabled, and check provider support for HTTP MCP. |
+| Saved MCP port is occupied | Resolve the conflict on the daemon host. The plugin fails instead of changing the URL stored in existing agents. |
+| MCP is unavailable after plugin removal/disable | Existing agents retain their descriptors. Re-enable the plugin, or create an agent while it is disabled. |
+| Storage or authorization fails | Inspect `paseo plugin logs paseo-canvas`. Check ownership, disk access, and file integrity; corrupt state is not silently reset. |
+| A diagram cannot be displayed | Read the unsupported-syntax explanation and inspect the source; only a Mermaid subset is supported. |
 
-## 依存と検証
+## Development
 
-`paseo-plugin-helper` は指定タグ `v0.4.0-beta.7` を採用し、package-lock.jsonでcommitを固定しています。UIの `Button`・`Tabs`・`Badge`・`EmptyState`・`CodeBlock`・`KeyValue`、`PluginThemeProvider`、ホスト初期化・Query、RPC契約、ログに利用しています。Markdown原文全体はPaseo標準の `ScrollView` とReact Nativeの `Text` で表示し、コード片にはhelperの `CodeBlock` を使います。本文ストアには `PluginStorage` を使いません。
+| Area | Responsibility |
+| --- | --- |
+| `index.client.tsx`, `client/` | Workspace panel, native-compatible views, interactions, and query invalidation. |
+| `index.server.ts`, `server/` | Lifecycle hooks, MCP, persistence, Markdown parsing, and math/image processing. |
+| `shared/` | Validated contracts, document structures, and Mermaid parsing/layout. |
+| `tests/` | Storage, protocol, UI/rendering, recovery, and host-integration checks. |
+| `tests/visual/` | Sample-data browser fixture with replacement host services. |
 
-`npm run check` で型検査と次の検証を行います。
+The UI uses public Paseo components and `paseo-plugin-helper` pinned to **v0.4.0-beta.7**. Markdown is parsed and sanitized on the daemon with unified/remark/rehype and sent to the client as a validated structure. Mermaid code is vendored from `paseo-plugin-mermaid`; see its [provenance and modifications](third-party/paseo-plugin-mermaid/README.md). MathJax, resvg, and [bundled fonts](server/assets/README.md) remain on the daemon. Product rendering requires no Chromium, WebView, or additional native module.
 
-- 保存・復元・破損拒否・同時更新・期限切れ・ワークスペース分離。
-- 強制終了後の復元、保存領域の排他、シンボリックリンクによる保存先変更の拒否。
-- 実HTTP MCPクライアントでのA/B間共有、認証、競合、失効。
-- リリース版Paseoの実コンパイラー・フック検証・AgentManager・カスタムプロバイダー経由のMCP／RPC連携。
-- 保存したエージェント設定による別プロセスでの再開、正常終了／強制終了後の同一URL・認証情報での接続、ポート競合、認証の永続的な無効化と再有効化。
-- GFM・編集状態・表示切り替え・コンパクトレイアウトのコンポーネント検証。
-- Mermaidの解析・配置・未対応記法の拒否、拡大・移動・画面幅変更、数式の実PNG生成。
+```sh
+npm run check          # Generate assets, typecheck, and run tests
+npm run visual:build   # Build the sample-data browser fixture
+npm run visual:serve   # Serve it at http://127.0.0.1:49618
+```
 
-画面検証用のfixtureは `npm run visual:build` で `.test-output/visual` に生成できます。これはサンプルデータを使う開発用画面で、プラグインにバンドルされません。
+The visual fixture replaces host RPC, modal, toast, and clipboard integration. It is not a running Paseo installation.
 
-今回のMCP登録変更は、未改修の `@getpaseo/server@0.8.0` と製品のコンパイル済みバンドルから実際のCodex 0.154.0を起動して確認しました。2つのセッションで8個のツールを認識し、HTTP MCP経由の共有・ロック競合、プラグイン再起動後の保存済み接続情報の継続利用、フックを経由せずに同じ隔離HOMEで起動したCodexへの非登録を確認しています。LLMへのプロンプトは送信していません。Claude・OpenCodeの実接続、同じ会話をネイティブのエージェントからPaseo外で再開する場合の挙動は未検証です。
+### Validation status
 
-検証環境はmacOS・Node.js 22です。React Native Webのデスクトップ／390px幅、明暗テーマ、コード切り替えをブラウザーで確認しています。iOS／Androidの実機、Linux／Windows上の保存耐久性、実際のPaseoアプリにインストールした状態での一連の動作は未検証です。特にWindowsのディレクトリ同期は未対応環境でエラーとなるため、対応済みとは扱いません。
+Checks performed on macOS with Node.js 22 include:
 
-### Markdown表示の依存関係
+- Automated storage, corruption, locking, workspace isolation, HTTP MCP, rendering, and automatic-update tests.
+- Unmodified Paseo 0.8.0 compilation, hook validation, `AgentManager`, and a custom provider fixture exercising stored-agent resume after normal exit and forced process termination.
+- The production bundle with real Codex 0.154.0: eight-tool discovery in two agents, HTTP sharing/lock conflicts, plugin-restart recovery, and no Canvas registration in a separate launch using the same isolated home. No LLM prompt was sent.
+- Desktop/390px browser layouts and light/dark themes. Mocked native checks do not establish real-device behavior.
 
-`remark-parse` / `remark-gfm` / `remark-math` / `remark-emoji` で解析し、`remark-rehype` / `rehype-raw` / `rehype-sanitize` で許可した文書構造へ変換します。解析はサーバーで行い、検証済みの構造をRPCで送り、クライアントはPaseoのテーマとReact Nativeの部品で表示します。ソース表示とMCPの本文は原文を保持します。
+> [!NOTE]
+> Physical iOS/Android devices, Claude/OpenCode runtime connections, external native resume of the same conversation, and end-to-end operation in the user's installed Paseo app remain unverified. Linux/Windows storage durability is also unverified; Windows environments without directory synchronization support fail rather than silently weaken durability.
 
-`npm run setup` はresvgのWASMと日本語フォントをサーバーバンドルに埋め込むファイルを生成します。ブラウザーの取得・起動や、描画時の外部サービスへの接続はありません。数式の描画はPaseoデーモン側、図の描画は閲覧クライアント側で行います。クライアントにMathJax・resvgや追加ネイティブモジュールは渡しません。コードのシンタックスハイライトは追加していません。
+See the [architecture decisions](docs/adr/README.md) for design rationale and [UI guidance](docs/ui.md) for detailed visual rules. The ADRs are in English; UI guidance is currently in Japanese.
 
-### Mermaidの対応範囲
+## Acknowledgments
 
-[`dutchakdev/paseo-plugin-mermaid`](https://github.com/dutchakdev/paseo-plugin-mermaid) のMITライセンスのパーサー・配置処理・React Native描画部分を固定commitから取り込んでいます。独立したライブラリとして配布されたものではないため、必要なソースを同梱しました。[出典と変更点](third-party/paseo-plugin-mermaid/README.md) と [ライセンス](third-party/paseo-plugin-mermaid/LICENSE) を保持しています。
+Thank you to the authors and contributors of these projects:
 
-公式Mermaidの全記法には対応しません。宣言と内容は改行で区切り、1行に1つの定義または接続を書きます。
-
-- `flowchart` / `graph`: TD・TB・BT・LR・RL方向、矩形・角丸・スタジアム形・サブルーチン・円・ひし形、実線・破線・太線、接続ラベル、連続した接続。
-- `sequenceDiagram`: participant・actor、メッセージ、実線・破線、矢印・交差線・非同期メッセージ、自己呼び出し、over・left of・right ofの注記。actorは角の丸い参加者枠で区別します。
-- subgraph・style・classDef・click・設定ディレクティブ、六角形・非対称形、loop・alt・activate等のブロックや他の図種は未対応です。パーサーが扱えない行を検出したら、図全体を表示せずにエラーと記法の確認操作を出します。
-
-図は自動で表示領域に収め、最大400%まで拡大できます。Electron／Webでは描画エリア内のホイール操作でポインター位置を中心に拡大縮小します。このエリア内では本文をスクロールせず、上限・下限に達してもページへスクロールを流しません。拡大後はマウスまたは1本指で移動、2本指で拡大縮小・移動できます。「全体を収める」で位置と倍率を戻せます。上部の「ポップアップ」と右寄せの「コードを表示」は、図・コードを画面全体から12pxの余白を取ったポップアップに表示します。React Native標準Modalを使い、閉じるボタン・Androidの戻る・WebのEscに対応します。図のラベルは配置計算に合わせて固定サイズとし、文字も図の拡大率に従って大きくなります。入力50,000文字、フローチャート200ノード・300接続、シーケンス図30参加者・100イベント、配置サイズ各辺8,000pxを上限とします。
-
-### 数式の対応範囲
-
-MathJax 4.1.3のTeX入力（base・ams・newcommand・boldsymbol・mathtools・cancel）と同版のTeXフォントを使用します。数式ごとにマクロと番号の状態を分離し、追加パッケージの自動取得はしません。日本語テキストには同梱のNoto Sans JPを使います。[フォントの出典とライセンス](server/assets/README.md) を参照してください。
-
-数式は50,000文字以内、マクロ展開1,000回、PNG各辺8,192px・合計1,600万画素、転送用データ8 MBに制限します。2倍の密度で画像化し、表示にはその半分の寸法を使います。描画エラーは明示し、記法の確認と再試行を用意します。
-
-表示確認: `npm run visual:build` と `npm run visual:serve` を実行し、`http://127.0.0.1:49618` を開きます。サンプル文書とホストUIの代替実装を使用しますが、Markdown解析・図と数式の描画・画像読み込みには製品と同じコードを使います。Paseo本体へのインストール検証とは別です。
-
-MathJaxの間接依存が参照するXMLパーサーの既知の脆弱性を避けるため、`overrides` で `@xmldom/xmldom@0.9.12` を指定しています。上流の指定が更新された時点で見直します。
+- [paseo-plugin-helper](https://github.com/xpufx/paseo-plugin-helper) provides the reusable UI components and plugin utilities used throughout paseo-canvas.
+- [paseo-plugin-mermaid](https://github.com/dutchakdev/paseo-plugin-mermaid) provides the foundation for our native-compatible Mermaid rendering. Its parser, layout, and drawing code has been adapted for Canvas; see the [source attribution and modifications](third-party/paseo-plugin-mermaid/README.md).

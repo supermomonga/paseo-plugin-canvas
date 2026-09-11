@@ -75,4 +75,4 @@ The implementation session also exercised the production bundle through unmodifi
 
 ## More Information
 
-See [entry hooks](../../index.server.ts), [credential registry](../../server/sessions.ts), [HTTP MCP](../../server/mcp.ts), [release example](https://github.com/getpaseo/paseo/blob/v0.8.0/plugin-examples/agent-configuration/index.server.ts) and [operational limits](../../README.md#mcp接続の範囲). Revisit if a released public API adds runtime-only MCP injection or supported configuration updates for existing agents; do not restore a private patch dependency.
+See [entry hooks](../../index.server.ts), [credential registry](../../server/sessions.ts), [HTTP MCP](../../server/mcp.ts), [release example](https://github.com/getpaseo/paseo/blob/v0.8.0/plugin-examples/agent-configuration/index.server.ts) and [operational limits](../../README.md#mcp-connection-and-access). Revisit if a released public API adds runtime-only MCP injection or supported configuration updates for existing agents; do not restore a private patch dependency.
