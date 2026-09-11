@@ -543,8 +543,8 @@ export function Markdown({
           >
             <Button
               variant="secondary"
-              style={{ minHeight: 44, justifyContent: "flex-start" }}
-              textStyle={{ fontSize: 14, lineHeight: 20 }}
+              size="sm"
+              style={{ justifyContent: "flex-start" }}
               label={summary ? textContent(summary) : "詳細"}
               icon={open ? "ChevronDown" : "ChevronRight"}
               accessibilityLabel={`${summary ? textContent(summary) : "詳細"}を${open ? "閉じる" : "開く"}`}

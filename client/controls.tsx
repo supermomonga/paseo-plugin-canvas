@@ -1,9 +1,6 @@
-import { Button, usePluginTheme, type ButtonProps } from "paseo-plugin-helper/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Button, type ButtonProps } from "paseo-plugin-helper/client";
 
-// The same outer box is used for every toolbar action and the view-mode tabs.
-// Explicit line boxes avoid platform font padding changing their alignment.
-export const CONTROL_HEIGHT = 44;
+// Keep text baselines explicit; let helper size the controls.
 export const HEADER_HEIGHT = 64;
 export const titleText = {
   fontSize: 14,
@@ -22,29 +19,23 @@ export function ToolbarButton({
   icon,
   label,
   accessibilityLabel,
+  size = "sm",
   ...props
-}: Omit<ButtonProps, "variant" | "size" | "textStyle" | "icon"> & { icon: string }) {
-  const { colors } = usePluginTheme();
+}: Omit<ButtonProps, "variant" | "textStyle" | "icon"> & { icon: string }) {
   return (
     <Button
       {...props}
       label={label}
       accessibilityLabel={accessibilityLabel ?? label}
-      icon={<Icon name={icon} size={16} color={colors.foreground} />}
+      icon={icon}
       variant="secondary"
-      size="sm"
-      style={[
-        {
-          height: CONTROL_HEIGHT,
-          minHeight: CONTROL_HEIGHT,
-          paddingVertical: 0,
-          paddingHorizontal: label ? 12 : 0,
-          width: label ? undefined : CONTROL_HEIGHT,
-          borderRadius: 6,
-        },
-        props.style,
-      ]}
-      textStyle={{ ...metaText, color: colors.foreground }}
+      size={size}
+      style={props.style}
+      textStyle={{
+        lineHeight: metaText.lineHeight,
+        fontWeight: metaText.fontWeight,
+        includeFontPadding: metaText.includeFontPadding,
+      }}
     />
   );
 }

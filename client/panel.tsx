@@ -26,7 +26,6 @@ import {
 } from "../shared/contracts";
 import { Markdown } from "./markdown";
 import {
-  CONTROL_HEIGHT,
   HEADER_HEIGHT,
   ToolbarButton,
   titleText,
@@ -415,12 +414,13 @@ function CanvasDetail({
                 activeTab={mode}
                 onTabChange={(id) => setMode(id as "preview" | "source")}
                 mode="fit"
-                style={{ height: CONTROL_HEIGHT, borderRadius: 6 }}
+                style={{ borderRadius: 6 }}
               />
             </View>
             <ToolbarButton
               icon="Copy"
               label="コピー"
+              size="md"
               accessibilityLabel="本文をコピー"
               onPress={async () => {
                 try {
@@ -433,7 +433,7 @@ function CanvasDetail({
             />
           </>
         ) : (
-          <View style={{ height: CONTROL_HEIGHT }} />
+          null
         )}
       </View>
       {missing ? (

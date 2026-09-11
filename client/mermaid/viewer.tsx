@@ -83,7 +83,7 @@ export function Mermaid({
             label="図を開く"
             icon="Maximize2"
             size="sm"
-            style={{ minHeight: 44 }}
+
             onPress={() => setModal("diagram")}
           />
         )}
@@ -91,7 +91,7 @@ export function Mermaid({
           label="記法を表示"
           icon="Code"
           size="sm"
-          style={{ minHeight: 44 }}
+
           onPress={() => setModal("source")}
         />
       </View>
@@ -279,7 +279,7 @@ export function DiagramViewport({
           icon="ZoomOut"
           size="sm"
           disabled={transform.scale <= minimum + 0.0001}
-          style={{ minHeight: 44 }}
+
           onPress={() => zoom(1 / 1.25)}
         />
         <Text
@@ -299,14 +299,14 @@ export function DiagramViewport({
           icon="ZoomIn"
           size="sm"
           disabled={transform.scale >= 4}
-          style={{ minHeight: 44 }}
+
           onPress={() => zoom(1.25)}
         />
         <Button
           label="全体表示"
           icon="Scan"
           size="sm"
-          style={{ minHeight: 44 }}
+
           onPress={() => commit(fitted(content, size))}
         />
       </View>
