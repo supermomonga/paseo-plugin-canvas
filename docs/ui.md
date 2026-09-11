@@ -38,7 +38,7 @@ Paseo本体の [docs/design.md](https://github.com/getpaseo/paseo/blob/f22a37e61
 
 `npm run check` で一覧・本文の遷移、幅の制約、コード切り替え、メタデータの表示、コピー通知、自動更新と再接続、別エージェントによる削除を検証する。`npm run visual:build` の開発用画面では実際のパネルとhelperを使い、明暗テーマ、デスクトップ・390px幅で確認する。
 
-開発用画面のアイコンは本体と同じ `lucide-react-native`、配色は本体の標準明暗テーマを使う。Modal、通知、clipboard、RPCのホスト接続はfixtureであり、実際のPaseoのModal表示や通知、OS clipboard、iOS/Androidのジェスチャーの動作確認にはならない。本体パッチを導入したPaseo上での検証は別途必要。
+開発用画面のアイコンは本体と同じ `lucide-react-native`、配色は本体の標準明暗テーマを使う。Modal、通知、clipboard、RPCのホスト接続はfixtureであり、実際のPaseoのModal表示や通知、OS clipboard、iOS/Androidのジェスチャーの動作確認にはならない。実際のPaseoアプリ上での検証は別途必要。
 
 ## 整列の検証
 

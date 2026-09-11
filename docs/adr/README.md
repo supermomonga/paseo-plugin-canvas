@@ -1,1 +1,7 @@
 * [1. Record architecture decisions](0001-record-architecture-decisions.md)
+* [2. Persist workspace-shared GFM canvases with exclusive edit leases](0002-persist-workspace-shared-gfm-canvases-with-exclusive-edit-leases.md)
+* [3. Register Canvas MCP through released Paseo creation hooks](0003-register-canvas-mcp-through-released-paseo-creation-hooks.md)
+* [4. Build one native-compatible UI with public Paseo components](0004-build-one-native-compatible-ui-with-public-paseo-components.md)
+* [5. Parse and sanitize Markdown on the daemon](0005-parse-and-sanitize-markdown-on-the-daemon.md)
+* [6. Render diagrams and mathematics without Chromium or WebView](0006-render-diagrams-and-mathematics-without-chromium-or-webview.md)
+* [7. Refresh canvases through workspace-scoped long polling](0007-refresh-canvases-through-workspace-scoped-long-polling.md)
