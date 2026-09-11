@@ -1,0 +1,10 @@
+{
+  "id": "paseo-canvas",
+  "requirements": {
+    "paseo": ">=0.8.0"
+  },
+  "build": [
+    ["npm", "ci"],
+    ["npm", "run", "setup"]
+  ]
+}

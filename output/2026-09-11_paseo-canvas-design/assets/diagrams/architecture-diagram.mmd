@@ -1,0 +1,7 @@
+flowchart TB
+  UI["PaseoのGFM Canvasパネル"] -->|プラグインRPC| S["所属確認・Canvas操作・ロック検証"]
+  A["エージェントA"] -->|MCP| M["Canvas用MCPサーバー"]
+  B["エージェントB"] -->|MCP| M
+  M --> S
+  S --> D["プロジェクト外の永続保存先"]
+  D --> W["workspaceIdごとの複数Canvas"]

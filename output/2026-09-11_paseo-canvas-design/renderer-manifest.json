@@ -1,0 +1,136 @@
+{
+  "schema_version": "1.0",
+  "renderer_version": "1.9.0",
+  "generated_at": "2026-09-11T09:09:18.111665+00:00",
+  "input": {
+    "path": "/Users/code/ghq/github.com/supermomonga/paseo-plugin-canvas/output/2026-09-11_paseo-canvas-design/document-model.json",
+    "sha256": "e09da38b7adc92abebe1e2c21e8a82fd44f3512c58a9e2e598d0c8355a1e26eb"
+  },
+  "document": {
+    "id": "paseo-canvas-design-20260911",
+    "title": "paseo-canvas 設計レビュー"
+  },
+  "outputs": {
+    "index": "index.html",
+    "assets": [
+      "assets/style.css",
+      "assets/publish-overrides.css",
+      "assets/publish-export.js",
+      "assets/review-comments.js",
+      "assets/task-checklist.js",
+      "assets/interactive-state.js",
+      "assets/mermaid.min.js",
+      "assets/diagram-zoom.js",
+      "assets/highlight.min.js",
+      "assets/highlight-init.js"
+    ],
+    "diagrams": [
+      "assets/diagrams/architecture-diagram.mmd",
+      "assets/diagrams/locking-sequence.mmd"
+    ],
+    "images": []
+  },
+  "diagrams": [
+    {
+      "block_id": "architecture-diagram",
+      "kind": "architecture",
+      "source": "assets/diagrams/architecture-diagram.mmd"
+    },
+    {
+      "block_id": "locking-sequence",
+      "kind": "sequence",
+      "source": "assets/diagrams/locking-sequence.mmd"
+    }
+  ],
+  "review_blocks": [
+    {
+      "id": "document-header",
+      "type": "header",
+      "review_required": false
+    },
+    {
+      "id": "review-scope",
+      "type": "html",
+      "review_required": false
+    },
+    {
+      "id": "terms",
+      "type": "html",
+      "review_required": false
+    },
+    {
+      "id": "requirements",
+      "type": "html",
+      "review_required": false
+    },
+    {
+      "id": "current-capabilities",
+      "type": "html",
+      "review_required": false
+    },
+    {
+      "id": "architecture",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "architecture-diagram",
+      "type": "diagram",
+      "review_required": true,
+      "diagram_kind": "architecture",
+      "diagram_source": "assets/diagrams/architecture-diagram.mmd"
+    },
+    {
+      "id": "data-lifetime",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "locking",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "locking-sequence",
+      "type": "diagram",
+      "review_required": false,
+      "diagram_kind": "sequence",
+      "diagram_source": "assets/diagrams/locking-sequence.mmd"
+    },
+    {
+      "id": "mcp-operations",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "session-hook",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "preview-design",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "alternatives",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "open-decisions",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "verification",
+      "type": "html",
+      "review_required": true
+    },
+    {
+      "id": "evidence",
+      "type": "html",
+      "review_required": false
+    }
+  ]
+}

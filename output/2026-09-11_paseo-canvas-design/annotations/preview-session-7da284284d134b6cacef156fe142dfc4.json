@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "session_id": "7da284284d134b6cacef156fe142dfc4",
+  "root": "/Users/code/ghq/github.com/supermomonga/paseo-plugin-canvas/output/2026-09-11_paseo-canvas-design",
+  "bind": "127.0.0.1",
+  "port": 49616,
+  "url": "http://127.0.0.1:49616/index.html",
+  "pid": 2355,
+  "owner_pid": null,
+  "created_at": "2026-09-11T08:52:30.361207+00:00",
+  "mode": "local",
+  "status": "running",
+  "owner_session": "01a08f7b-6376-72d2-b74e-93dbb599c5c7",
+  "idle_timeout": 86400
+}

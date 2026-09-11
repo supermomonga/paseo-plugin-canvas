@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0",
+  "document_id": "paseo-canvas-design-20260911",
+  "comments": [
+    {
+      "id": "cmt_mtwpzy7q",
+      "document_id": "paseo-canvas-design-20260911",
+      "block_id": "data-lifetime",
+      "selected_text": "保存場所はプロジェクト外のプラグイン専用領域とする。Linuxなら ~/.local/share/paseo-canvas/ がユーザー指定の例。具体的なOS別パスと保存方式は実装時に確定する。",
+      "prefix": "はプロジェクトの成果物に直接しないという意味であり、プロセス終了で消すという意味ではありません。",
+      "suffix": "表 3最小データモデル対象主な項目保存・復元方針CanvasworkspaceId / canv",
+      "anchor": {
+        "start": 86,
+        "end": 183
+      },
+      "comment": "設計段階からちゃんと決めておきたい",
+      "status": "resolved",
+      "created_at": "2026-09-11T08:54:43.190Z",
+      "replies": [
+        {
+          "id": "reply_9de52f1095d4",
+          "author": "agent",
+          "role": "agent",
+          "kind": "answer",
+          "body": "設計段階で保存先と方式を確定するべきでした。「実装時に確定する」は撤回し、次の具体案を提案します。\n\n■ 保存先\n保存するのはPaseoデーモンが動くマシンです。閲覧端末側ではありません。\n・Linux：$XDG_DATA_HOME/paseo-canvas/。未設定・空の場合は ~/.local/share/paseo-canvas/。相対パスのXDG_DATA_HOMEはXDG仕様上無効として扱います。\n・macOS：~/Library/Application Support/paseo-canvas/\n・Windows：ユーザーのLocalAppDataディレクトリ配下の paseo-canvas/（通常は %LOCALAPPDATA%\\paseo-canvas\\）。\n各ルートの下を hosts/<hostKey>/canvas.sqlite3 とします。hostKeyはPaseoの実効ホームディレクトリ（PASEO_HOME、未指定なら ~/.paseo）の正規化済み実パスをSHA-256で識別した値です。同じOSユーザーで複数デーモンを使っても保存領域を分け、再起動では同じ領域を使います。Paseoホームの移動では自動的に既存データを移さず、保存領域の移行が必要と明記します。\n\n■ 保存方式\nSQLiteを採用する案です。文書のキーは (workspaceId, canvasId)。title、content、revision、createdAt、updatedAt、updatedByAgentIdを保存します。本文とrevisionの更新、および更新時のロック検証を同じトランザクション内で行います。\nWALモード・synchronous=FULLを明示し、コミット成功後に保存成功を返します。-wal/-shmも同じ専用領域に置き、ローカルディスクでの利用を前提にします。これはJSONファイル置換と独自の排他処理を組み合わせるより、今回必要な「本文・revision・編集権限の整合した更新」を直接表現できます。SQLite接続ライブラリとPaseo同梱ランタイムの適合は、実装前の技術検証に含めます。\n\n読み取り・検証・書き込み失敗で空データへ戻す処理は入れません。破損時は該当操作を停止し、既存DBを保存したままエラーを示します。helperのPluginStorageはこの本文ストアには使わず、helperはUI・RPC・ログなどに活用します。\n\n編集ロックは本文とは寿命を分けます。ロックにはプラグイン起動ごとの識別子を付け、再起動したプロセスは前回のロックを継承しません。本文は復元し、旧トークンは拒否します。アーカイブでは保持し、明示的な削除操作で文書を削除する案です。\n\nこれは本スレッドで確定したい設計案です。スレッド解決後、保存先・DB構造・エラー方針を本文と検証項目へ反映します。\n\n参照：\nXDG https://specifications.freedesktop.org/basedir/\nmacOS https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/MacOSXDirectories/MacOSXDirectories.html\nWindows https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid\nSQLite https://sqlite.org/transactional.html\nSQLite同期設定 https://sqlite.org/pragma.html#pragma_synchronous",
+          "created_at": "2026-09-11T08:59:33.829313+00:00"
+        },
+        {
+          "id": "reply_mtwqc317",
+          "author": "user",
+          "role": "user",
+          "kind": "note",
+          "body": "SQLiteじゃなくて生のファイル（frontmatter付きのmarkdownファイル）の方がいいと思う。workspaceId でサブフォルダを作っておけば参照性も担保できると思う",
+          "created_at": "2026-09-11T09:04:09.307Z"
+        },
+        {
+          "id": "reply_2f0202038031",
+          "author": "agent",
+          "role": "agent",
+          "kind": "answer",
+          "body": "frontmatter付きMarkdownを採用する方針に変更します。文書を直接参照でき、今回の規模ではSQLiteを導入する必要はありません。前のSQLite案は取り下げます。\n\n保存するのはPaseoデーモン側です。前の返信で示したOS別の専用ルートとPaseoホームごとの分離を維持し、その下を次の構造にします。\n\n<保存ルート>/hosts/<hostKey>/<workspaceId>/<canvasId>.md\n\nworkspaceIdで一覧をたどれ、canvasIdをファイル名にするためタイトル変更でもパスが変わりません。IDはPaseoの所属情報とプラグイン生成値を使い、パス要素として検証します。\n\n各ファイルはUTF-8のMarkdownで、先頭のYAML frontmatterにschemaVersion、workspaceId、canvasId、title、revision、createdAt、updatedAt、updatedByAgentIdを持たせ、その後にGFM本文を置きます。日時はUTCのISO 8601文字列です。タイトル等はYAMLとして正しくシリアライズします。本文をJSON文字列に閉じ込めず、ファイルを開けばそのまま読める形にします。MCPのcontentとプレビュー／コード表示には管理用frontmatterを除いた本文を渡します。別の一覧用DBは作らず、フォルダ内のファイルから一覧を取得します。\n\n更新の整合性は「1文書＝本文と更新情報を含む1ファイル」で保ちます。同じCanvasに対するロック取得・延長・解放・更新・削除は、同じサーバー処理で直列に扱います。更新時にロックとexpectedRevisionを検証し、同じディレクトリの一時ファイルへ全体を書き、同期してから置換します。保存成功を返す条件と、置換・ディレクトリ同期のOSごとの耐久性は実装前に検証します。途中失敗で空文書へ置き換えたり、不正なfrontmatterを無視したりはしません。\n\nロックの所有者・日時・秘密トークンはMarkdownへ書かず、実行中のプラグインがメモリで管理します。再起動時は文書を復元し、ロックは未取得・旧トークンは無効とします。同じ保存領域を複数のプラグインプロセスが同時に更新しないよう、保存領域の排他も必要です。\n\nファイルの外部参照は可能にします。一方、外部エディターとの同時書き込みは初期仕様に含めません。外部からの編集も許す場合は、revisionや編集中ロックとの整合ルールを別途決める必要があります。\n\nこの内容を保存方式の具体案として差し替えます。スレッド解決後に保存先・データモデル・保存失敗時の検証項目へ反映します。もう一方のスレッドで合意いただいたeditStateの定義は、今回本文へ反映します。",
+          "created_at": "2026-09-11T09:05:45.194909+00:00"
+        }
+      ]
+    },
+    {
+      "id": "cmt_mtwq2ohv",
+      "document_id": "paseo-canvas-design-20260911",
+      "block_id": "mcp-operations",
+      "selected_text": "CANVAS.LIST\t接続に紐づくworkspaceId\tID・タイトル・revision・編集状態\nCANVAS.GET\tcanvasId\t本文・revision・編集状態",
+      "prefix": "",
+      "suffix": "",
+      "anchor": {
+        "start": 108,
+        "end": 191
+      },
+      "comment": "「編集状態」を明確に定義したい。ロック情報（ロック元・ロック日時など）も含めたい",
+      "status": "resolved",
+      "created_at": "2026-09-11T08:56:50.563Z",
+      "replies": [
+        {
+          "id": "reply_08c6633cd50b",
+          "author": "agent",
+          "role": "agent",
+          "kind": "answer",
+          "body": "「編集状態」は曖昧だったため、「現在有効な編集ロックの状態」として定義します。エージェントが推論中か、本文に未保存変更があるかを意味するものではありません。\n\ncanvas.listの各項目とcanvas.getに、同じ構造のeditStateを返す案です。\n\n未ロック：\n{ \"status\": \"unlocked\" }\n\nロック中：\n{\n  \"status\": \"locked\",\n  \"lock\": {\n    \"id\": \"公開用のロックID\",\n    \"ownerAgentId\": \"PaseoのエージェントID\",\n    \"ownerAgentTitle\": \"取得時点の表示名、未設定ならnull\",\n    \"acquiredAt\": \"UTCのISO 8601日時\",\n    \"renewedAt\": \"UTCのISO 8601日時\",\n    \"expiresAt\": \"UTCのISO 8601日時\"\n  }\n}\n\n・ownerAgentIdは接続に紐づく識別情報からサーバーが設定します。ツール引数の自己申告は使いません。\n・acquiredAtは今回のロック取得日時。期限延長では変えません。\n・renewedAtは最後に取得・延長が成功した日時。取得直後はacquiredAtと同じです。\n・expiresAtは失効日時。サーバー時刻がこの値以上なら未ロックとして扱います。\n・公開用lock.idは取得ごとに新しくなります。更新権限を持つlockTokenとは別で、list/getにはlockTokenを返しません。\n・応答にはobservedAtも付け、どのサーバー時刻で判定した状態かを示します。表示後に別エージェントが取得できるため、保存時には必ず再検証します。\n・本文のrevisionとupdatedAtは別項目です。ロック取得・延長・解放だけでは本文のrevisionを増やしません。\n・期限切れ／解放済みは現在状態としてunlockedに統一します。過去のロック履歴は初期仕様に含めません。別のロックを再取得した場合はacquiredAtも新しくなります。\n\nUIでは「エージェントAが編集中」「取得日時」「最終更新日時（ロックの延長）」「有効期限」を確認できるようにします。名前がない場合はagentIdを表示します。\nスレッド解決後、この構造をAPI表・ロックの説明・応答の検証項目へ揃えて反映します。",
+          "created_at": "2026-09-11T08:59:34.112602+00:00"
+        },
+        {
+          "id": "reply_mtwqd304",
+          "author": "user",
+          "role": "user",
+          "kind": "note",
+          "body": "ok。反映して。",
+          "created_at": "2026-09-11T09:04:55.924Z"
+        }
+      ]
+    }
+  ]
+}

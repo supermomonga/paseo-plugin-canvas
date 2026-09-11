@@ -1,0 +1,24 @@
+{
+  "schema_version": "2.0",
+  "document_id": "paseo-canvas-design-20260911",
+  "comments_path": "annotations/comments.json",
+  "generated_at": "2026-09-11T09:08:04.026377+00:00",
+  "summary": {
+    "total": 2,
+    "needs_agent_review": 0,
+    "needs_user_reply": 0,
+    "resolved": 2,
+    "replies_added": 0,
+    "model_updates_applied": 0
+  },
+  "needs_agent_review_ids": [],
+  "resolved_ids": [
+    "cmt_mtwpzy7q",
+    "cmt_mtwq2ohv"
+  ],
+  "replacement_hints": [],
+  "model_updates": {
+    "applied": 0,
+    "skipped": []
+  }
+}

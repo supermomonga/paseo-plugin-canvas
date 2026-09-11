@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ja" data-theme="light" data-density="compact">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>paseo-canvas 設計レビュー</title>
+  <link rel="stylesheet" href="assets/style.css?v=2026-09-11T09:09:18.111665+00:00">
+  <!-- Mermaid の初期化が data-theme を読むため、theme の確定はこの位置より後にできない -->
+  <script data-role="reviewable-early-theme">(function(){try{var s=localStorage.getItem('reviewable-theme');if(s==='light'||s==='dark'){document.documentElement.dataset.theme=s;return;}}catch(e){}if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches){document.documentElement.dataset.theme='dark';}})()</script>
+<style id="palette-override">
+:root { --brand: #2f6093; --brand-soft: #e8eff7; }
+[data-theme="dark"] { --brand: #7fb0e6; --brand-soft: #1b2b3d; }
+</style>
+  <script src="assets/mermaid.min.js?v=2026-09-11T09:09:18.111665+00:00"></script>
+  <script data-role="reviewable-mermaid-init">(function(){function t(){var d=document.documentElement.dataset.theme;if(d!=='dark'&&d!=='light'){d=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}return d==='dark'?'dark':'default';}function boot(){mermaid.initialize({startOnLoad:false,theme:t(),securityLevel:'strict'});}window.__rhwRerenderMermaid=function(){var n=Array.prototype.slice.call(document.querySelectorAll('.mermaid[data-mermaid-source]'));if(!n.length){return Promise.resolve();}n.forEach(function(el){el.removeAttribute('data-processed');el.textContent=el.getAttribute('data-mermaid-source');});boot();return Promise.resolve(mermaid.run({nodes:n})).catch(function(){});};boot();document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.mermaid').forEach(function(el){el.setAttribute('data-mermaid-source',el.textContent);});mermaid.run();if(window.matchMedia){var mq=window.matchMedia('(prefers-color-scheme: dark)');var f=function(){var d=document.documentElement.dataset.theme;if(d==='dark'||d==='light'){return;}window.__rhwRerenderMermaid();};if(mq.addEventListener){mq.addEventListener('change',f);}else if(mq.addListener){mq.addListener(f);}}});})()</script>
+  <script src="assets/diagram-zoom.js?v=2026-09-11T09:09:18.111665+00:00" defer></script>
+  <script src="assets/highlight.min.js?v=2026-09-11T09:09:18.111665+00:00"></script>
+  <script src="assets/highlight-init.js?v=2026-09-11T09:09:18.111665+00:00"></script>
+  <!-- html block の inline script より先に RHWState を定義する必要があるため head に置く -->
+  <script src="assets/interactive-state.js?v=2026-09-11T09:09:18.111665+00:00"></script>
+</head>
+<body>
+  <div class="app" data-document-id="paseo-canvas-design-20260911">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="brand-mark">
+          <span class="brand-glyph">RW</span>
+          <span class="brand-name">Reviewable HTML Workbench</span>
+        </span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="toolset">
+        <select class="chip-select" id="filterSelect" data-i18n="filterLabel">
+          <option value="all" data-i18n="filterAll"></option>
+          <option value="hide-resolved" data-i18n="filterHideResolved"></option>
+          <option value="only-open" data-i18n="filterOnlyOpen"></option>
+        </select>
+        <button class="btn ghost" id="tocToggle" type="button" data-i18n-title="tocToggleTitle" aria-pressed="true">
+          <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h10M3 8h7M3 12h10"/></svg>
+          <span data-i18n="tocToggleLabel"></span>
+        </button>
+        <button class="btn ghost" id="commentsToggle" type="button" data-i18n-title="commentsToggleTitle" aria-pressed="true">
+          <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5h10v7H8l-3 2.5V10.5H3z"/></svg>
+          <span data-i18n="commentsToggleLabel"></span>
+        </button>
+        <button class="btn ghost" id="publishToggle" type="button" data-i18n-title="publishTitle" aria-pressed="false">
+          <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3C4.5 3 2 8 2 8s2.5 5 6 5 6-5 6-5-2.5-5-6-5Z"/><circle cx="8" cy="8" r="2"/></svg>
+          <span class="pt-label" data-i18n="publishLabel"></span>
+        </button>
+        <button class="btn ghost" id="themeToggle" type="button" data-i18n-title="themeTitle">
+          <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M13 3l-1.1 1.1M4.1 11.9 3 13"/></svg>
+          <span class="tt-label">Dark</span>
+        </button>
+      </div>
+    </header>
+    <main class="canvas" id="canvas">
+      <div class="doc-shell">
+        <div class="doc-grid">
+          <nav class="toc" aria-label="目次" data-i18n="tocLabel">
+            <p class="toc-h" data-i18n="tocHeader"></p>
+<ol class="toc-list">
+<li class="toc-h2"><a href="#review-scope">合意した方針</a>
+<ol>
+<li><a href="#terms">用語と共有範囲</a>
+</li>
+</ol>
+</li>
+<li class="toc-h2"><a href="#requirements">要求と利用シナリオ</a>
+</li>
+<li class="toc-h2"><a href="#current-capabilities">現行APIと追加調査の結果</a>
+</li>
+<li class="toc-h2"><a href="#architecture">提案する責務分担</a>
+<ol>
+<li><a href="#architecture-diagram">UIとエージェントが共有するデータ経路</a>
+</li>
+</ol>
+</li>
+<li class="toc-h2"><a href="#data-lifetime">プロジェクト外への永続化</a>
+</li>
+<li class="toc-h2"><a href="#locking">編集ロックと読み取り</a>
+<ol>
+<li><a href="#locking-sequence">Aの編集中にBが操作した場合</a>
+</li>
+</ol>
+</li>
+<li class="toc-h2"><a href="#mcp-operations">エージェント向け操作API案</a>
+</li>
+<li class="toc-h2"><a href="#session-hook">本体拡張案：セッション起動時のMCP接続</a>
+</li>
+<li class="toc-h2"><a href="#preview-design">GFMプレビューとコード表示</a>
+</li>
+<li class="toc-h2"><a href="#alternatives">paseo-plugin-helperの活用範囲</a>
+</li>
+<li class="toc-h2"><a href="#open-decisions">残る検討事項</a>
+</li>
+<li class="toc-h2"><a href="#verification">実装時の検証と完了条件</a>
+</li>
+<li class="toc-h2"><a href="#evidence">調査根拠と資料の状態</a>
+</li>
+</ol>
+          </nav>
+          <article class="doc-main">
+            <div class="paper">
+              <header class="doc-headrow document-header" id="document-header" data-review-block="document-header" data-block-type="header" data-review-required="false">
+                <div class="doc-head-main">
+                  
+                  <p class="eyebrow"><a href="https://github.com/u-ichi/reviewable-html-workbench" target="_blank" rel="noopener">Paseo plugin / 設計提案</a></p>
+                  <h1 class="doc-title">paseo-canvas 設計レビュー</h1>
+                  
+                </div>
+              </header>
+              <p class="doc-deck">GFM専用の共有Canvas。プロジェクト外に永続化し、Paseoのセッション限定MCPで操作する。helper v0.4.0-beta.7の活用範囲と残る実装上の制約を整理。</p>
+              
+              <p class="doc-meta document-meta">Source generated at <time>2026-09-11T09:09:05.702250+00:00</time></p>
+              
+              <div class="prose autonum document-content" id="content">
+<section class="review-block" id="review-scope" data-review-block="review-scope" data-block-type="html" data-review-required="false">
+<h2>合意した方針</h2>
+<div class="block-content"><p>paseo-canvasは、プロジェクト内のファイルを変更せず、同一ワークスペースのユーザーとエージェントが複数の文書を共有するPaseoプラグインです。基本構成は合意済みで、以下の追加方針を採用します。</p><div class="decision-panel"><ul><li><strong>形式：</strong>Markdown（GFM）のみをサポートする。HTML形式はサポートしない。</li><li><strong>保存：</strong>プロジェクト外のOS別専用領域へ、workspaceIdごとのfrontmatter付きMarkdownファイルとして永続化する。Paseo・プラグイン・OS再起動後に復元する。</li><li><strong>実装支援：</strong>paseo-plugin-helperのv0.4.0-beta.7タグを活用する。用途に合うAPIを選び、互換性とエラー処理を確認する。</li><li><strong>共有と操作：</strong>workspaceId単位の複数Canvas、プレビュー／コード表示、MCPによるエージェント操作、サーバー側の編集ロックを維持する。</li><li><strong>MCPの範囲：</strong>Paseoから起動するセッションに注入する。通常のPaseo外起動に設定を追加せず、MCPサーバー側でも接続を認証する。</li></ul></div><p>HTMLプレビュー部品の本体拡張は不要になりました。残る主な検討は、起動時の所属情報とMCP設定の連携、helperの実機検証、ファイル保存のOS別耐久性とプロセス間の排他方式です。今回は設計資料の更新であり、プラグイン実装は未着手です。</p></div>
+</section>
+<section class="review-block" id="terms" data-review-block="terms" data-block-type="html" data-review-required="false">
+<h3>用語と共有範囲</h3>
+<div class="block-content"><dl class="glossary"><dt>ワークスペース</dt><dd>Paseoがエージェントを所属させる作業単位。共有のキーにはディレクトリ名ではなくworkspaceIdを使います。</dd><dt>Canvas</dt><dd>タイトル、Markdown（GFM）の本文、リビジョン、編集状態を持つ文書です。ワークスペースに複数作成できます。</dd><dt>デーモン</dt><dd>エージェントとプラグインのサーバー処理が動くPaseoの常駐プロセスです。共有は同じデーモン内を前提とし、別デーモン間の同期は含めません。</dd><dt>GFM</dt><dd>GitHub Flavored Markdown。通常のMarkdownに加え、表、タスクリスト、取り消し線、自動リンクなどの拡張を扱います。Markdown内の生HTMLをプレビューで解釈・実行しない方針です。</dd><dt>MCP</dt><dd>エージェントに外部操作ツールを提供する接続方式です。Canvasの一覧取得や更新をツールとして公開します。</dd><dt>RPC</dt><dd>Canvasパネルからデーモン側の処理を呼び出す仕組みです。MCPとは入口が異なります。</dd><dt>リビジョンと期限付きロック</dt><dd>リビジョンは本文更新ごとに増える番号です。ロックは一人の編集者だけに一定時間の更新を許し、継続時には期限を延長する仕組みです。</dd></dl></div>
+</section>
+<section class="review-block" id="requirements" data-review-block="requirements" data-block-type="html" data-review-required="false">
+<h2>要求と利用シナリオ</h2>
+<div class="block-content"><p>表1はユーザーが指定した要求です。形式・永続化・helper採用は今回の指示で確定しました。</p><figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 1</span><span class="t-title">確定した要求</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">ID</th><th scope="col">要求</th><th scope="col">成立条件</th></tr></thead><tbody><tr><th scope="row">R1</th><td>プロジェクト内に文書ファイルを作らない</td><td>Canvas操作でプロジェクトのファイルを生成・更新しない</td></tr><tr><th scope="row">R2</th><td>Markdown（GFM）のみ</td><td>表・タスクリスト・取り消し線・自動リンクを含むGFMを表示。HTML形式は提供しない</td></tr><tr><th scope="row">R3</th><td>プレビュー／コード表示の切り替え</td><td>同じ本文の描画結果とソースを切り替える</td></tr><tr><th scope="row">R4</th><td>ワークスペース内で共有</td><td>Aが保存した文書をBが同じcanvasIdで取得できる</td></tr><tr><th scope="row">R5</th><td>編集ロックと編集者表示</td><td>所有エージェントを表示し、他セッションの更新を拒否</td></tr><tr><th scope="row">R6</th><td>複数Canvas</td><td>同じworkspaceIdに複数文書を保持</td></tr><tr><th scope="row">R7</th><td>Paseo内のエージェントから操作</td><td>セッション限定のMCP注入と接続認証。対応カスタムプロバイダーも対象</td></tr><tr><th scope="row">R8</th><td>再起動後の復元</td><td>プロジェクト外の専用領域へ保存し、Paseo・OS再起動後に本文と管理情報を復元</td></tr><tr><th scope="row">R9</th><td>paseo-plugin-helperを活用</td><td>互換性と用途を確認した公開APIを採用</td></tr></tbody></table></div></figure><ol><li>Aが「実装プラン」をMarkdownで作成し、編集ロックを取得する。</li><li>Aが本文を永続化し、ロックを解放する。</li><li>ユーザーがGFMプレビューまたはコード表示で内容を確認する。</li><li>BがCanvasのIDを指定し、本文とリビジョンを取得して実装に利用する。</li><li>PaseoやOSを再起動した後も、同じワークスペースのCanvas一覧と本文を復元する。</li></ol><p>Bが参照する本文は取得時点の内容です。更新内容を会話へ自動追記する機能は初期対象外です。</p></div>
+</section>
+<section class="review-block" id="current-capabilities" data-review-block="current-capabilities" data-block-type="html" data-review-required="false">
+<h2>現行APIと追加調査の結果</h2>
+<div class="block-content"><p>Paseoの調査対象はcommit <code>772ff8d6f37571aa2f3e0016827f026fefbde2ac</code>、Plugin SDK 0.8.0です。helperはv0.4.0-beta.7タグ、version 0.4.0-beta.7、commit <code>b309bf4b697c965a093a3dd0b9fdd6a2032768a4</code>を確認しました。いずれもコード上の評価で、実機検証は未実施です。</p><figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 2</span><span class="t-title">機能と制約</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">機能</th><th scope="col">判定</th><th scope="col">根拠・残る作業</th></tr></thead><tbody><tr><th scope="row">共有パネル・複数Canvas</th><td>実装可能</td><td>workspaceコンテキストのパネルへworkspaceIdが渡る</td></tr><tr><th scope="row">プロジェクト外の永続化</th><td>実装可能・保存方式は合意済み</td><td>専用領域のfrontmatter付きMarkdownを採用。ファイル置換・同期・排他の実機検証が必要</td></tr><tr><th scope="row">GFMプレビュー</th><td>実装が必要</td><td>Paseo公開SDKとhelperに完成したGFM描画APIは確認できない。パーサーとReact Nativeの描画を選定</td></tr><tr><th scope="row">コード表示</th><td>実装可能</td><td>保存された本文を表示。高度なエディターは別途検討</td></tr><tr><th scope="row">新規セッションへのMCP注入</th><td>対応あり</td><td>agent.createでconfig.mcpServersを追加。グローバル設定への登録は不要</td></tr><tr><th scope="row">既存セッションを含む所属付き注入</th><td>公開フックに不足</td><td>session_openでは所属IDが得られるがMCP設定を変更できない</td></tr><tr><th scope="row">カスタムプロバイダー</th><td>受け渡し対応あり</td><td>session.openのconfig.mcpServersに届く。直接実装は作者が転送し、runAcpProviderはACPへ変換・転送</td></tr><tr><th scope="row">編集ロック</th><td>プラグインが実装</td><td>所有者・期限・トークン・revisionを検証。helperのファイル置換だけでは排他制御にならない</td></tr><tr><th scope="row">更新の画面反映</th><td>定期取得で実装可能</td><td>Canvas固有のpush通知は別途APIが必要</td></tr></tbody></table></div></figure></div>
+</section>
+<section class="review-block" id="architecture" data-review-block="architecture" data-block-type="html" data-review-required="true">
+<h2>提案する責務分担</h2>
+<div class="block-content"><p>Canvas本文とロックを扱うサーバー処理を一つに集約し、UIのRPCとエージェントのMCPから同じ更新処理を呼び出します。クライアントごとのReact状態を共有データの正本にしません。</p><ul><li><strong>クライアント：</strong>一覧、本文、表示切り替え、編集者表示、通信状態。</li><li><strong>サーバー：</strong>所属確認、Canvas操作、競合判定、保存、ロック期限の管理。</li><li><strong>MCP接続：</strong>エージェントの操作入口。接続に紐づくagentIdとworkspaceIdをサーバーが決定。</li><li><strong>Paseo本体の拡張候補：</strong>セッション起動時のMCP設定変更。HTML表示APIの追加は対象外。</li><li><strong>helper：</strong>v0.4.0-beta.7のパネル・UI・Query補助と、サーバーのログ・機密値の伏せ字・共有RPC契約を利用する。CanvasのGFM描画・MCPサーバー・ロックそのものは別途実装する。</li></ul></div>
+</section>
+<section class="review-block" id="architecture-diagram" data-review-block="architecture-diagram" data-block-type="diagram" data-review-required="true">
+<h3>UIとエージェントが共有するデータ経路</h3>
+  <figure class="diagram-wrap"><button type="button" class="diagram-zoom-btn" aria-label="拡大">⤢</button><pre class="mermaid">flowchart TB
+  UI[&quot;PaseoのGFM Canvasパネル&quot;] --&gt;|プラグインRPC| S[&quot;所属確認・Canvas操作・ロック検証&quot;]
+  A[&quot;エージェントA&quot;] --&gt;|MCP| M[&quot;Canvas用MCPサーバー&quot;]
+  B[&quot;エージェントB&quot;] --&gt;|MCP| M
+  M --&gt; S
+  S --&gt; D[&quot;プロジェクト外の永続保存先&quot;]
+  D --&gt; W[&quot;workspaceIdごとの複数Canvas&quot;]</pre></figure>
+</section>
+<section class="review-block" id="data-lifetime" data-review-block="data-lifetime" data-block-type="html" data-review-required="true">
+<h2>プロジェクト外への永続化</h2>
+<div class="block-content"><p>本文と管理情報の永続化は確定要件です。「一時的」はプロジェクトの成果物に直接しないという意味であり、プロセス終了で消すという意味ではありません。保存するのはPaseoデーモンが動くマシンで、閲覧端末側ではありません。</p>
+<div class="decision-panel"><p>1つのCanvasを、YAML frontmatter付きのUTF-8 Markdownファイルとして保存します。workspaceIdごとにフォルダを作り、canvasIdをファイル名にします。タイトル変更でパスは変わりません。本文・更新情報を同じファイルにまとめ、一覧用DBは作りません。</p></div>
+<ul><li><strong>Linux：</strong><code>$XDG_DATA_HOME/paseo-canvas/</code>。未設定・空の場合は<code>~/.local/share/paseo-canvas/</code>。相対パスのXDG_DATA_HOMEは無効として扱います。</li><li><strong>macOS：</strong><code>~/Library/Application Support/paseo-canvas/</code>。</li><li><strong>Windows：</strong>ユーザーのLocalAppData配下の<code>paseo-canvas/</code>（通常は<code>%LOCALAPPDATA%\paseo-canvas\</code>）。</li></ul>
+<pre><code class="language-text">&lt;保存ルート&gt;/hosts/&lt;hostKey&gt;/&lt;workspaceId&gt;/&lt;canvasId&gt;.md</code></pre>
+<p><code>hostKey</code>は実効Paseoホーム（<code>PASEO_HOME</code>、未指定なら<code>~/.paseo</code>）の正規化済み実パスをSHA-256で識別した値です。Paseoホームが異なる環境を分離し、同じホームでの再起動では同じ領域を使います。ホームの移動時は保存領域の明示的な移行が必要です。workspaceIdはPaseoの所属情報、canvasIdはプラグイン生成値を使い、いずれもパス要素として検証します。</p>
+<figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 3</span><span class="t-title">保存するデータと実行中だけの状態</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">対象</th><th scope="col">項目</th><th scope="col">保存・復元方針</th></tr></thead><tbody><tr><th scope="row">識別情報</th><td>schemaVersion / workspaceId / canvasId / title</td><td>先頭のYAML frontmatter。パスとIDの一致を検証する</td></tr><tr><th scope="row">更新情報</th><td>revision / createdAt / updatedAt / updatedByAgentId</td><td>frontmatterに本文と一緒に保存。日時はUTCのISO 8601文字列</td></tr><tr><th scope="row">本文</th><td>content</td><td>frontmatterの後にGFMをそのまま保存。形式選択用のformat引数は不要</td></tr><tr><th scope="row">公開ロック情報</th><td>id / ownerAgentId / ownerAgentTitle / acquiredAt / renewedAt / expiresAt</td><td>プラグインのメモリで管理。Markdownには保存しない</td></tr><tr><th scope="row">秘密のロックトークン</th><td>lockToken</td><td>メモリで管理。公開情報と区別し、list/getやMarkdownには含めない</td></tr></tbody></table></div></figure>
+<p>ファイル形式の例（ID・日時・本文は例示）：</p><pre><code class="language-markdown">---
+schemaVersion: 1
+workspaceId: "workspace-example"
+canvasId: "canvas-example"
+title: "実装プラン"
+revision: 1
+createdAt: "2026-09-11T09:00:00.000Z"
+updatedAt: "2026-09-11T09:00:00.000Z"
+updatedByAgentId: "agent-example"
+---
+# 実装プラン
+
+- [ ] 共有Canvasを実装する
+</code></pre>
+<p>タイトル等はYAMLとして正しくシリアライズします。管理用frontmatterだけを取り除いた本文をMCPのcontentとプレビュー／コード表示へ渡します。本文自身に含まれる区切りやMarkdownは保持します。一覧はworkspaceIdのフォルダ内の文書ファイルから取得します。</p>
+<ol><li>同じCanvasへのロック取得・延長・解放・更新・削除を、同じサーバー処理で直列に扱う。</li><li>更新時に所属・ロック・expectedRevisionを検証する。</li><li>本文と更新済みfrontmatterを同じディレクトリの一時ファイルへ書き込み、同期してから文書ファイルを置換する。</li><li>必要な永続化処理を完了してから保存成功を応答する。保存成功の条件と置換・ディレクトリ同期のOS別耐久性は実装前に検証する。</li></ol>
+<ul><li>同じ保存領域への書き込みは単一のプラグインプロセスが所有する。別プロセスの同時書き込みを防ぐ排他方式は実装前に検証する。</li><li>読み取り・解析・検証・書き込みに失敗した場合はエラーを返し、既存ファイルを空文書や初期値で上書きしない。不正なfrontmatterを無視しない。</li><li>再起動では本文・管理情報を復元する。ロックは未取得とし、旧トークンを無効にする。</li><li>アーカイブでは文書を保持し、明示的な削除操作で削除する。再起動を理由に自動削除しない。</li><li>外部からファイルを読むことは可能。外部エディターとの同時書き込みは初期仕様に含めない。外部編集を追加する際はrevision・ロックとの整合ルールを別途設計する。</li></ul></div>
+</section>
+<section class="review-block" id="locking" data-review-block="locking" data-block-type="html" data-review-required="true">
+<h2>編集ロックと読み取り</h2>
+<div class="block-content"><p>編集中という表示だけでは競合を防げません。サーバーがロック取得と本文更新を不可分の処理として判定し、拒否時には現在の所有者とリビジョンを返す設計にします。</p><ol><li>ロック取得時に空きまたは期限切れであることを確認し、一意なトークンを発行する。</li><li>本文更新時に、所属ワークスペース、所有者、トークン、期限、expectedRevisionをまとめて検証する。</li><li>成功時だけ本文とrevisionを更新し、保存成功を応答する。</li><li>編集終了時に明示解放する。継続中は所有者が期限を更新する。</li></ol><ul><li>ロック中も他セッションの読み取りを許可する。</li><li>古いrevisionからの保存は拒否し、自動マージや無条件上書きはしない。</li><li>削除やタイトル変更も更新競合を起こすため、同じ権限検証の対象にする。</li><li>期限はサーバー時刻で判定する。期限の長さと更新契機は実際のエージェント作業時間を踏まえて決める。</li><li>ロック期限切れ後に遅れて到着した保存や、別の所有者に移った後の旧解放要求を拒否する。</li></ul><p>編集状態のAPI契約は「エージェント向け操作API案」の<code>editState</code>に従います。期限切れと解放済みは現在状態として<code>unlocked</code>に統一し、過去のロック履歴は初期仕様に含めません。再取得では公開IDと取得日時を新しくします。ロックの取得・延長・解放だけでは、本文の<code>revision</code>と<code>updatedAt</code>を変更しません。</p><p>UIには編集者、取得日時、ロックの最終延長日時、有効期限を表示します。表示名がない場合は<code>agentId</code>を表示します。ロック取得直後の最終延長日時には取得日時を使います。</p></div>
+</section>
+<section class="review-block" id="locking-sequence" data-review-block="locking-sequence" data-block-type="diagram" data-review-required="false">
+<h3>Aの編集中にBが操作した場合</h3>
+  <figure class="diagram-wrap"><button type="button" class="diagram-zoom-btn" aria-label="拡大">⤢</button><pre class="mermaid">sequenceDiagram
+  participant A as エージェントA
+  participant S as Canvasサーバー
+  participant B as エージェントB
+  A-&gt;&gt;S: lock.acquire
+  S--&gt;&gt;A: tokenとrevision
+  B-&gt;&gt;S: canvas.get
+  S--&gt;&gt;B: 本文とAの編集状態
+  B-&gt;&gt;S: lock.acquire
+  S--&gt;&gt;B: 拒否・Aが編集中
+  A-&gt;&gt;S: canvas.update(token, expectedRevision)
+  S--&gt;&gt;A: 保存済みrevision
+  A-&gt;&gt;S: lock.release(token)
+  B-&gt;&gt;S: canvas.get
+  S--&gt;&gt;B: 更新済み本文</pre></figure>
+</section>
+<section class="review-block" id="mcp-operations" data-review-block="mcp-operations" data-block-type="html" data-review-required="true">
+<h2>エージェント向け操作API案</h2>
+<div class="block-content"><p>次の名称はpaseo-canvas用に提案するもので、Paseo既存APIではありません。UIとMCPでデータの検証・更新処理を共有します。</p><figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 4</span><span class="t-title">MCP操作の最小構成</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">操作</th><th scope="col">入力の要点</th><th scope="col">結果</th></tr></thead><tbody><tr><th scope="row">canvas.list</th><td>接続に紐づくworkspaceId</td><td>ID・タイトル・revision・editState（各項目）。応答にobservedAt</td></tr><tr><th scope="row">canvas.get</th><td>canvasId</td><td>本文・revision・editState・observedAt</td></tr><tr><th scope="row">canvas.create</th><td>title・content</td><td>canvasId・初期revision</td></tr><tr><th scope="row">canvas.update</th><td>canvasId・lockToken・expectedRevision・変更内容</td><td>保存済みrevision、または競合</td></tr><tr><th scope="row">canvas.delete</th><td>canvasId・lockToken・expectedRevision</td><td>削除完了、または競合</td></tr><tr><th scope="row">lock.acquire / renew / release</th><td>canvasId、更新・解放時はlockToken</td><td>所有者・期限、取得成功時はtoken</td></tr></tbody></table></div></figure><p>agentIdとworkspaceIdは任意のツール引数として信頼せず、接続情報から確定します。Canvas参照時にも所属を検証し、別ワークスペースのIDを指定しても取得・更新できないようにします。MCPの認証は接続の取り違えを防ぐためのもので、同じOS権限を持つ任意のコードに対する隔離とは区別します。</p><p>Paseoでの起動にだけ接続先と認証情報を渡す。ユーザーのグローバルMCP設定やプロジェクト内のMCP設定を変更しない。通常のPaseo外起動にCanvasツールを追加しない。</p><p><code>editState</code>は現在有効な編集ロックの状態です。エージェントの推論状態や未保存変更の有無は表しません。<code>canvas.list</code>の各項目と<code>canvas.get</code>で同じ構造を返します。</p><p>未ロック時：</p><pre><code class="language-json">{ "status": "unlocked" }</code></pre><p>ロック中の応答例（日時・IDは例示）：</p><pre><code class="language-json">{
+  "status": "locked",
+  "lock": {
+    "id": "lock-example",
+    "ownerAgentId": "agent-example",
+    "ownerAgentTitle": "実装プラン",
+    "acquiredAt": "2026-09-11T09:00:00.000Z",
+    "renewedAt": "2026-09-11T09:01:00.000Z",
+    "expiresAt": "2026-09-11T09:05:00.000Z"
+  }
+}</code></pre><ul><li><code>ownerAgentId</code>は認証済み接続からサーバーが設定する。<code>ownerAgentTitle</code>は取得時点の表示名で、未設定なら<code>null</code>。</li><li><code>acquiredAt</code>は今回の取得日時で、延長しても変えない。<code>renewedAt</code>は最後に取得・延長が成功した日時で、取得直後は<code>acquiredAt</code>と一致する。</li><li><code>expiresAt</code>は失効日時。すべての日時はUTCのISO 8601文字列。サーバー時刻が期限以上なら<code>unlocked</code>とする。</li><li><code>lock.id</code>は取得ごとに新しくなる公開ID。更新権限を持つ秘密の<code>lockToken</code>とは別であり、list/getにはトークンを返さない。</li><li>list/getの応答直下に<code>observedAt</code>を付け、どのサーバー時刻で状態を判定したかを示す。listでは全項目を同じ判定時刻で評価する。表示後に状態が変わり得るため、保存時には再検証する。</li></ul></div>
+</section>
+<section class="review-block" id="session-hook" data-review-block="session-hook" data-block-type="html" data-review-required="true">
+<h2>本体拡張案：セッション起動時のMCP接続</h2>
+<div class="block-content"><p>現行フックには、設定を変更できる時点と、所属IDが分かる時点のずれがあります。初回作成だけの接続と、作成・再開・更新・取り込みを通じた接続を分けて評価します。</p><figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 5</span><span class="t-title">現行フックの非対称</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">フック</th><th scope="col">得られる情報</th><th scope="col">変更可能な範囲</th></tr></thead><tbody><tr><th scope="row">agent.create</th><td>configとenv。引数に確定agentId・workspaceIdがない</td><td>config.mcpServersを変更できる</td></tr><tr><th scope="row">agent.session_open</th><td>agentId・workspaceId・reason・purpose・env</td><td>現行実装で採用される変更はenv</td></tr></tbody></table></div></figure><div class="reco"><span class="reco-tag">本体拡張の提案</span><p>agent.session_openでセッションごとのMCP設定を追加・変更できるようにする。起動時に識別情報と接続認証を関連付け、保存設定と起動時だけの設定を分ける。</p></div><ul><li>workspaceIdがないセッションと履歴取得目的の起動をどう扱うか、明示する。</li><li>既存の稼働中セッションへの即時追加は別問題。設定反映にはセッションを開き直す必要があるか、プロバイダー別に確認する。</li><li>プラグイン再読み込み時のMCP接続先・認証更新も検証する。</li><li>新APIの具体的な型とPaseo側の採用可否は未確定。</li></ul><p>根拠：<a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/plugin/src/server/lifecycle.ts#L32">フック契約</a>、<a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/server/src/server/agent/agent-manager.ts#L5085">envだけを採用する起動処理</a>。</p><p><strong>確認済みの範囲：</strong>Paseo起動の新規セッションだけにMCPを注入すること自体は現行APIで可能。本体拡張の検討対象は、確定した所属IDとMCP設定を同じ起動フックで扱い、再開や取り込みにも一貫して適用する点です。</p><p><strong>カスタムプロバイダー：</strong>session.openのinput.config.mcpServersで設定を受け取れる。runAcpProviderはnewSession/loadSessionへ変換して渡す。独自SDKを直接扱うプロバイダーは、作者がセッション単位でMCP設定を適用する必要がある。</p></div>
+</section>
+<section class="review-block" id="preview-design" data-review-block="preview-design" data-block-type="html" data-review-required="true">
+<h2>GFMプレビューとコード表示</h2>
+<div class="block-content"><p>CanvasはMarkdown（GFM）専用とする。HTML形式のキャンバス、HTMLプレビュー、iframeやWebViewの表示API拡張は実装対象から外します。</p><ul><li>ワークスペースのCanvasパネル内で文書一覧と本文を表示する。</li><li>「プレビュー／コード」で、管理用frontmatterを除いた同じGFM本文の描画結果とソースを切り替える。</li><li>GFMの表、タスクリスト、取り消し線、自動リンクを受け入れ検証に含める。</li><li>Markdown内の生HTMLはプレビューで解釈・実行しない。原文はコード表示で保持する。</li><li>GFMのタスクリスト表示を、クリックで本文を書き換える機能と混同しない。ユーザー編集は別の検討項目。</li><li>接続断時は最終取得内容であることを示し、失敗を最新状態として扱わない。</li><li>表示に必要なリンク・画像の取り扱いは実装時に明示する。</li></ul><p>GFMパーサーとReact Nativeでの描画方式は選定が必要です。helperのCodeBlockはGFMレンダラーではなく、v0.4.0-beta.7のhelper/clientはinitClientHelpersでPaseo 0.8のホスト実装を受け取る方式です。</p></div>
+</section>
+<section class="review-block" id="alternatives" data-review-block="alternatives" data-block-type="html" data-review-required="true">
+<h2>paseo-plugin-helperの活用範囲</h2>
+<div class="block-content"><p>helperの採用は確定方針です。READMEだけでなく公開ソースを確認し、表6のように利用範囲を分けます。Context7ではhelper固有の資料を取得できなかったため、GitHub上の一次資料を参照しました。</p><figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 6</span><span class="t-title">helper v0.4.0-beta.7の採用判断</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">機能</th><th scope="col">用途</th><th scope="col">確認結果・方針</th></tr></thead><tbody><tr><th scope="row">serverのログ・機密値処理</th><td>createPluginLogger / redactSecrets</td><td>活用対象。SDKのクライアントAPIに依存しない機能を選ぶ</td></tr><tr><th scope="row">sharedのRPC契約</th><td>defineContract</td><td>活用対象。PaseoのRPCに合う構造を返し、ランタイムのSDK importを持たない</td></tr><tr><th scope="row">clientのUI・Query補助</th><td>パネル・UI・useRpcQuery</td><td>v0.4.0-beta.7はinitClientHelpersでPaseoのIcon・Modal・useRpc・useToastなどを注入する。パネル登録、Tabs、CodeBlock、useRpcQueryを活用候補とする</td></tr><tr><th scope="row">PluginStorage</th><td>Canvasの永続化には不採用</td><td>読み取り例外・スキーマ不一致で初期値を返す。更新の排他・比較更新も提供しないため、Canvasストアに採用しない。frontmatter付きMarkdownを専用の保存処理で扱う</td></tr><tr><th scope="row">McpClient</th><td>MCPクライアント・診断</td><td>エージェントへ公開するMCPサーバーの実装とは別物。必要な診断用途に限定</td></tr><tr><th scope="row">upsertMcpServer / removeMcpServer</th><td>エージェント設定ファイルの編集</td><td>今回の用途では使わない。Paseo外の起動にも影響する設定登録を避ける</td></tr></tbody></table></div></figure><div class="reco"><span class="reco-tag">実装方針</span><p>v0.4.0-beta.7タグを使用し、client/server/sharedの必要な機能を活用する。クライアント入口でPaseo 0.8の公式SDKからホスト実装を渡す。paseo-canvas側に旧Paseo向けの互換層は追加しない。導入時に解決したcommitをロックファイルで固定する。</p></div><p>helperはUI・RPC・ログなどに活用し、Canvasの本文保存にはPluginStorageを使わない。専用のMarkdown保存処理で、解析失敗の通知、本文とrevisionの整合、排他、再起動後の復元を保証する。ファイル置換だけで停電時の耐久性を保証したとは扱わない。</p><p>根拠：<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/README.md">互換性と機能の説明</a>、<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/src/client/query.ts">v0.4.0-beta.7のQuery実装</a>、<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/src/server/storage.ts">保存とエラー処理</a>、<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/src/shared/rpc.ts">共有RPC契約</a>。</p><p>初期化は <code>initClientHelpers()</code> に <code>@getpaseo/plugin/client</code> の <code>useRpc</code> と、<code>@getpaseo/plugin/client/react-native</code> のUI・クリップボード・スクロール部品を渡す。これはhelperが提供する公開の統合方法です。<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/src/client/host.ts">ホスト依存の公開契約</a>。</p><p>依存指定は <code>github:xpufx/paseo-plugin-helper#v0.4.0-beta.7</code> とする。確認したcommitは <code>b309bf4b697c965a093a3dd0b9fdd6a2032768a4</code>。ブランチ先端には追従せず、更新は明示的に行う。</p></div>
+</section>
+<section class="review-block" id="open-decisions" data-review-block="open-decisions" data-block-type="html" data-review-required="true">
+<h2>残る検討事項</h2>
+<div class="block-content"><p>GFM専用、HTML非対応、OS別専用領域のfrontmatter付きMarkdownへの永続化、編集状態のAPI契約、helper活用は確定済みです。以下のみを引き続き検討します。</p><figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 7</span><span class="t-title">実装前の選定と実機検証が残る項目</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">論点</th><th scope="col">方向性</th><th scope="col">確認すること</th></tr></thead><tbody><tr><th scope="row">対応端末</th><td>Paseoのデスクトップ・Web・モバイルを基本候補</td><td>GFM描画と操作性の実機確認</td></tr><tr><th scope="row">保存処理の実現方法</th><td>保存先・frontmatter付きMarkdown・エラー方針は合意済み</td><td>YAMLの読み書き、ファイル置換と同期のOS別耐久性、保存領域のプロセス間排他を検証</td></tr><tr><th scope="row">GFM描画</th><td>GFMパーサーとReact Nativeで表示</td><td>ライブラリ選定、リンク・画像、長文・表</td></tr><tr><th scope="row">ユーザー編集</th><td>エージェント編集を基本とする</td><td>ユーザーも編集する場合の所有者モデル</td></tr><tr><th scope="row">既存セッションと認証</th><td>Paseoのセッションに限定</td><td>起動フック拡張、再開・再接続、トークン寿命</td></tr><tr><th scope="row">helperの採用範囲</th><td>v0.4.0-beta.7のclient/server/sharedを活用</td><td>clientの実機検証。本文保存にはPluginStorageを使わない</td></tr><tr><th scope="row">反映速度・ロック期限</th><td>定期取得と期限付きロック</td><td>間隔、長時間編集、異常終了からの回復</td></tr></tbody></table></div></figure><p>基本方針の再承認を求めるものではありません。選定や検証で具体的な制約が分かった場合に、その影響を確認します。</p></div>
+</section>
+<section class="review-block" id="verification" data-review-block="verification" data-block-type="html" data-review-required="true">
+<h2>実装時の検証と完了条件</h2>
+<div class="block-content"><p>以下はpaseo-canvas実装後の検証計画です。設計資料の生成検査とは分けて実施します。</p><figure class="table-wrap"><figcaption class="table-cap"><span class="t-no">表 8</span><span class="t-title">必要な検証</span></figcaption><div class="table-scroll"><table><thead><tr><th scope="col">観点</th><th scope="col">試験</th><th scope="col">合格条件</th></tr></thead><tbody><tr><th scope="row">共有</th><td>Aで保存してBで取得</td><td>canvasId・revision・本文が一致</td></tr><tr><th scope="row">分離</th><td>別workspaceから同じcanvasIdを指定</td><td>取得・変更を拒否</td></tr><tr><th scope="row">競合</th><td>同時ロック取得・古いrevisionによる保存</td><td>成功は一方のみ。古い保存は拒否</td></tr><tr><th scope="row">編集状態</th><td>list/getで取得直後・延長・期限切れ・解放・再取得を確認</td><td>同じeditState構造とobservedAtを返す。延長では取得日時を維持し、再取得ではID・取得日時を更新。期限以上はunlocked。本文revisionは不変</td></tr><tr><th scope="row">ロック情報</th><td>表示名未設定・所有者の自己申告・読み取り応答を確認</td><td>表示名はnull、UIはagentIdを表示。所有者は接続から決定し、list/getにはlockTokenを含めない</td></tr><tr><th scope="row">期限切れ</th><td>旧tokenで保存・解放</td><td>新しい所有者や本文を変更しない</td></tr><tr><th scope="row">再起動復元</th><td>Paseo・OSを再起動</td><td>本文と管理情報が復元され、旧ロックは無効</td></tr><tr><th scope="row">永続化エラー</th><td>不正なYAML frontmatter・パスとIDの不一致・読み取り／書き込み失敗</td><td>エラーを示し、空データで上書きしない</td></tr><tr><th scope="row">ファイル形式</th><td>保存ファイル・一覧・MCP・画面表示を比較</td><td>workspaceIdごとに文書を参照でき、frontmatterと本文が復元される。APIと画面では管理用frontmatterだけを除く</td></tr><tr><th scope="row">保存途中の停止</th><td>書き込み・同期・置換の各段階でプロセスを停止</td><td>本文とrevisionが食い違わない。保存成功と応答済みの更新が復元される。未完了の一時ファイルを文書として一覧に出さない</td></tr><tr><th scope="row">保存領域の分離・排他</th><td>異なるPaseoホーム、および同じ領域への複数プロセス起動</td><td>異なるホームのデータは分離され、同じ領域に同時の書き込み所有者を作らない</td></tr><tr><th scope="row">アーカイブ・削除</th><td>アーカイブ・再起動・明示削除</td><td>アーカイブと再起動では保持し、権限確認を通った明示削除だけで文書を削除する</td></tr><tr><th scope="row">GFM</th><td>表・タスクリスト・取り消し線・自動リンク</td><td>プレビューとソースが対応し、狭い画面でも閲覧可能</td></tr><tr><th scope="row">HTML非対応</th><td>生HTMLを含む本文</td><td>プレビューでHTMLを解釈・実行しない。ソースは保持</td></tr><tr><th scope="row">MCPの範囲</th><td>Paseo外の通常起動・無認証アクセス</td><td>ツールが自動追加されず、無認証操作は拒否</td></tr><tr><th scope="row">カスタムプロバイダー</th><td>直接実装とrunAcpProvider</td><td>session.open経由で設定が届き、対応プロバイダーで操作可能</td></tr><tr><th scope="row">helper</th><td>採用サブパスの型・バンドル・実行検査</td><td>Paseo 0.8で境界違反や旧API参照がない</td></tr><tr><th scope="row">副作用</th><td>Canvas操作前後のプロジェクトとグローバルMCP設定を比較</td><td>どちらも変更されない</td></tr></tbody></table></div></figure><ol><li>helperとGFM描画の採用ライブラリを選定し、合意したファイル保存方式の耐久性・排他を対象OSで検証する。</li><li>MCPの注入・認証・所属識別を対象プロバイダーで検証する。</li><li>共有ストアとロックを実装し、競合・エラー・再起動復元を確認する。</li><li>UIを実装し、AのプランをBが参照するシナリオとGFM表示を確認する。</li></ol></div>
+</section>
+<section class="review-block" id="evidence" data-review-block="evidence" data-block-type="html" data-review-required="false">
+<h2>調査根拠と資料の状態</h2>
+<div class="block-content"><p>根拠は直前のコード調査です。リンクは調査対象commitに固定しています。この資料作成に伴いPaseo本体やプラグインの実装は変更していません。</p><ul><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/public-docs/plugins/v0.8/reference.md#L106">実行環境・クライアントの利用可能モジュール</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/public-docs/plugins/v0.8/reference.md#L264">MCPサーバー設定の追加例</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/plugin/src/client/contracts.ts#L55">ワークスペースパネルの型</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/app/src/plugins/workspace-panels/panel.tsx#L45">パネルへのworkspaceIdの受け渡し</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/plugin/src/server/contracts.ts#L8">サーバー登録APIとRPCハンドラー</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/plugin/src/server/lifecycle.ts#L32">セッション起動フックの型</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/server/src/server/agent/agent-manager.ts#L5085">起動時にenvを採用する処理</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/app/src/plugins/react-native/runtime.ts#L9">公開されたUIコンポーネント</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/server/src/server/plugins/compiler.ts#L382">プラグイン依存のバンドル処理</a></li><li><a href="https://github.com/getpaseo/paseo/blob/772ff8d6f37571aa2f3e0016827f026fefbde2ac/packages/plugin/src/client/rpc-context.tsx#L29">useRpcの要求・応答契約</a></li></ul><div class="decision-panel"><p><strong>状態：</strong>解決済みレビュー2件を反映した設計資料。基本方針、GFM専用、OS別保存先とfrontmatter付きMarkdown、ロック情報のAPI契約、helperのv0.4.0-beta.7タグ活用は合意済みです。具体的なライブラリ選定とAPI拡張の契約は検討中です。型と実装の調査を、実機での動作保証として扱っていません。</p></div><p>追加調査：<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/package.json">helper v0.4.0-beta.7のパッケージ契約</a>、<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/README.md">README</a>、<a href="https://github.com/xpufx/paseo-plugin-helper/blob/b309bf4b697c965a093a3dd0b9fdd6a2032768a4/src/server/storage.ts">PluginStorage</a>。helperの依存導入・実行試験は未実施です。</p></div>
+</section>
+              </div>
+            </div>
+          </article>
+          <aside class="cmt-rail" data-i18n="railLabel">
+            <div class="cmt-rail-h">
+              <span data-i18n="railHeader"></span>
+              <span class="cmt-rail-count" id="cmtCount">—</span>
+            </div>
+            <div class="cmt-layer" id="cmtLayer"></div>
+          </aside>
+        </div>
+      </div>
+    </main>
+    <div class="pub-exit" id="pubExit" role="status">
+      <span class="pe-label"><b data-i18n="publishExitLabel"></b></span>
+      <div class="pe-seg" role="group">
+        <button class="pe-w on" data-pw="standard" data-i18n="publishStandard"></button>
+        <button class="pe-w" data-pw="max" data-i18n="publishMax"></button>
+      </div>
+      <button class="pe-btn primary" id="pubDownloadBtn">
+        <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg>
+        <span data-i18n="publishDownload"></span>
+      </button>
+      <button class="pe-btn" id="pubExitBtn">
+        <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        <span data-i18n="publishExit"></span>
+      </button>
+    </div>
+  </div>
+  <script src="assets/publish-export.js?v=2026-09-11T09:09:18.111665+00:00"></script>
+  <script src="assets/review-comments.js?v=2026-09-11T09:09:18.111665+00:00"></script>
+  <script src="assets/task-checklist.js?v=2026-09-11T09:09:18.111665+00:00"></script>
+</body>
+</html>
