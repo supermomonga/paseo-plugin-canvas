@@ -18,6 +18,9 @@ interface DomRange {
   endOffset: number;
   toString(): string;
   cloneContents(): DomNode;
+  selectNodeContents(node: DomNode): void;
+  comparePoint(node: DomNode, offset: number): number;
+  compareBoundaryPoints(how: number, range: DomRange): number;
   setStart(node: DomNode, offset: number): void;
   setEnd(node: DomNode, offset: number): void;
 }
@@ -88,21 +91,39 @@ export function observeTextSelection(
       !container.contains(range.endContainer)
     )
       return;
-    function boundary(node: DomNode, offset: number, end: boolean) {
-      for (const leaf of leaves.values()) {
-        const element = leaf.node as DomNode;
-        if (!element.contains(node)) continue;
-        const prefix = document.createRange();
-        prefix.setStart(element, 0);
-        prefix.setEnd(node, offset);
-        const index = prefix.toString().length;
-        return end ? leaf.map[index * 2 - 1] : leaf.map[index * 2];
-      }
-      return undefined;
+    let first: { range: DomRange; offset: number } | undefined;
+    let last: { range: DomRange; offset: number } | undefined;
+    for (const leaf of leaves.values()) {
+      const element = leaf.node as DomNode;
+      if (!container.contains(element) || !leaf.map.length) continue;
+      // Whole-line selections can end at the next block's child offset zero,
+      // rather than inside the last selected text node. Intersect the selection
+      // with each mapped leaf instead of requiring both endpoints inside leaves.
+      const startSide = range.comparePoint(element, 0);
+      const endSide = range.comparePoint(element, element.childNodes.length);
+      if (startSide > 0 || endSide < 0) continue;
+      const part = document.createRange();
+      part.selectNodeContents(element);
+      if (startSide < 0) part.setStart(range.startContainer, range.startOffset);
+      if (endSide > 0) part.setEnd(range.endContainer, range.endOffset);
+      const length = part.toString().length;
+      if (!length) continue; // Touching a boundary does not select its text.
+      const prefix = document.createRange();
+      prefix.setStart(element, 0);
+      prefix.setEnd(part.startContainer, part.startOffset);
+      const index = prefix.toString().length;
+      const start = leaf.map[index * 2];
+      const end = leaf.map[(index + length) * 2 - 1];
+      if (start === undefined || end === undefined) continue;
+      // Refs need not be registered in document order after a highlight update.
+      if (!first || part.compareBoundaryPoints(0, first.range) < 0)
+        first = { range: part, offset: start };
+      if (!last || part.compareBoundaryPoints(2, last.range) > 0)
+        last = { range: part, offset: end };
     }
-    const start = boundary(range.startContainer, range.startOffset, false),
-      end = boundary(range.endContainer, range.endOffset, true);
-    if (start === undefined || end === undefined || end <= start) return;
+    if (!first || !last || last.offset <= first.offset) return;
+    const start = first.offset,
+      end = last.offset;
     const quote = selectedQuote(
       range.cloneContents(),
       [...leaves.values()].some((leaf) =>
@@ -113,9 +134,11 @@ export function observeTextSelection(
       .replace(/\n+$/, "");
     if (quote) callback({ start, end, selectedText: quote });
   };
+  document.addEventListener("selectionchange", capture);
   document.addEventListener("mouseup", capture);
   document.addEventListener("keyup", capture);
   return () => {
+    document.removeEventListener("selectionchange", capture);
     document.removeEventListener("mouseup", capture);
     document.removeEventListener("keyup", capture);
   };
