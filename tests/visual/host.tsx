@@ -2,6 +2,7 @@
 // receives the actual Paseo icons, adaptive modal and toast implementations.
 import React, { useEffect, useState } from "react";
 import {
+  Eye,
   ZoomIn,
   ZoomOut,
   Scan,
@@ -39,6 +40,7 @@ import type {
 import type { PluginIconProps } from "@getpaseo/plugin/client";
 export { ScrollView };
 const icons = {
+  Eye,
   ZoomIn,
   ZoomOut,
   Scan,

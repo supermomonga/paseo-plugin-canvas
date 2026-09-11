@@ -408,8 +408,8 @@ function CanvasDetail({
             <View style={{ flex: 1, maxWidth: 260, minWidth: 0 }}>
               <Tabs
                 tabs={[
-                  { id: "preview", label: "プレビュー" },
-                  { id: "source", label: "コード" },
+                  { id: "preview", label: "プレビュー", icon: "Eye" },
+                  { id: "source", label: "コード", icon: "Code" },
                 ]}
                 activeTab={mode}
                 onTabChange={(id) => setMode(id as "preview" | "source")}

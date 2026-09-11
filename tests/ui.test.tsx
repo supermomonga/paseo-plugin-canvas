@@ -4,6 +4,8 @@ import { beforeEach, expect, test, vi } from "vitest";
 const nativePlatform = vi.hoisted(() => ({ OS: "web" }));
 vi.mock("react-native", () => ({
   View: "View",
+  Modal: "NativeModal",
+  SafeAreaView: "SafeAreaView",
   Image: Object.assign((props: object) => React.createElement("Image", props), {
     getSize: vi.fn(),
   }),
@@ -438,15 +440,20 @@ test("Mermaid uses native views, supports zoom/reset and source inspection witho
   expect(scale().join("")).not.toBe(initial);
   await act(async () => {
     buttons()
-      .find((node) => node.props.label === "全体表示")!
+      .find((node) => node.props.label === "全体を収める")!
       .props.onPress();
   });
   expect(scale().join("")).toBe(initial);
   await act(async () => {
     buttons()
-      .find((node) => node.props.label === "記法を表示")!
+      .find((node) => node.props.label === "コードを表示")!
       .props.onPress();
   });
+  await act(async () =>
+    tree.root
+      .findByProps({ testID: "mermaid-popup-body" })
+      .props.onLayout({ nativeEvent: { layout: { width: 950, height: 700 } } }),
+  );
   expect(tree.root.findByType(CodeBlock).props.code).toContain("A[計画]");
   expect(JSON.stringify(tree.toJSON())).not.toContain("iframe");
   await act(async () => tree.unmount());
@@ -554,7 +561,9 @@ test.each(["web", "ios", "android"] as const)(
     });
     expect(drawing().left - pinchedX).toBeCloseTo(-10);
     await act(async () =>
-      viewport().props.onLayout({ nativeEvent: { layout: { width: 200 } } }),
+      viewport().props.onLayout({
+        nativeEvent: { layout: { width: 200, height: 220 } },
+      }),
     );
     expect(drawing().transform[0].scale).toBeCloseTo(
       fitted(model, { width: 200, height: 220 }).scale,
@@ -603,6 +612,70 @@ test.each(["web", "ios", "android"] as const)(
     await act(async () => loads[2](400, 200));
     expect(tree.root.findByType(Image).props.source.uri).toBe(
       "https://example.com/two.png",
+    );
+    await act(async () => tree.unmount());
+  },
+);
+
+test.each(["web", "ios", "android"] as const)(
+  "Mermaid popup on %s fills measured space, switches to complete source and closes",
+  async (platform) => {
+    nativePlatform.OS = platform;
+    const { Mermaid, DiagramViewport } =
+      await import("../client/mermaid/viewer");
+    const source = "sequenceDiagram\nA->>B: 共有";
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <PluginThemeProvider
+          theme={theme}
+          layout={{ compact: platform !== "web", platform }}
+        >
+          <Mermaid source={source} theme={theme} width={320} />
+        </PluginThemeProvider>,
+      );
+    });
+    await act(async () => button(tree, "ポップアップ").props.onPress());
+    const popup = tree.root.findByProps({ testID: "mermaid-popup" });
+    expect(popup.props.style).toMatchObject({ flex: 1, margin: 12 });
+    await act(async () =>
+      tree.root
+        .findByProps({ testID: "mermaid-popup-body" })
+        .props.onLayout({
+          nativeEvent: { layout: { width: 950, height: 640 } },
+        }),
+    );
+    const diagram = popup.findByType(DiagramViewport);
+    expect(diagram.props.height).toBeUndefined();
+    expect(diagram.props.width).toBe(950);
+    const viewport = popup.findByProps({ testID: "mermaid-viewport" });
+    expect(viewport.props.style.flex).toBe(1);
+    await act(async () =>
+      viewport.props.onLayout({
+        nativeEvent: { layout: { width: 950, height: 550 } },
+      }),
+    );
+    await act(async () =>
+      diagram
+        .findAllByType(Button)
+        .find((n) => n.props.label === "コードを表示")!
+        .props.onPress(),
+    );
+    expect(tree.root.findAllByType("NativeModal" as never)).toHaveLength(1);
+    expect(popup.findByType(CodeBlock).props).toMatchObject({
+      code: source,
+      maxHeight: 640,
+    });
+    await act(async () =>
+      tree.root.findByType("NativeModal" as never).props.onRequestClose(),
+    );
+    expect(tree.root.findAllByProps({ testID: "mermaid-popup" })).toHaveLength(
+      0,
+    );
+    await act(async () => button(tree, "コードを表示").props.onPress());
+    await act(async () => button(tree, "閉じる").props.onPress());
+    expect(tree.root.findAllByProps({ testID: "mermaid-popup" })).toHaveLength(
+      0,
     );
     await act(async () => tree.unmount());
   },

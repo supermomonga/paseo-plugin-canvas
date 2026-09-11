@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PanResponder, Text, View, useWindowDimensions } from "react-native";
+import { PanResponder, Text, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
-import { Modal } from "@getpaseo/plugin/client/react-native";
+import { MermaidPopup } from "./popup";
 import { Button, CodeBlock } from "paseo-plugin-helper/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { diagramModel, type DiagramModel } from "../../shared/mermaid/model";
@@ -34,9 +34,9 @@ export function Mermaid({
     }
   }, [source]);
   const [modal, setModal] = useState<"source" | "diagram" | null>(null);
-  const window = useWindowDimensions();
+  const showCode = () => setModal("source");
   return (
-    <View style={{ gap: 8 }}>
+    <View>
       {parsed.model ? (
         <DiagramViewport
           key={source}
@@ -44,78 +44,83 @@ export function Mermaid({
           theme={theme}
           width={width}
           height={Math.min(360, Math.max(220, parsed.model.height + 32))}
+          onPopup={() => setModal("diagram")}
+          onShowCode={showCode}
         />
       ) : (
         <View
-          accessibilityRole="alert"
           style={{
-            padding: 12,
-            gap: 6,
             borderWidth: 1,
             borderColor: theme.colors.border,
-            borderRadius: 6,
+            borderRadius: 8,
+            overflow: "hidden",
           }}
         >
-          <Text
+          <View
             style={{
-              color: theme.colors.statusWarning,
-              fontSize: 13,
-              lineHeight: 20,
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              padding: 8,
+              borderBottomWidth: 1,
+              borderColor: theme.colors.border,
             }}
           >
-            このMermaid図は表示できません
-          </Text>
-          <Text
-            selectable
-            style={{
-              color: theme.colors.foregroundMuted,
-              fontSize: 12,
-              lineHeight: 18,
-            }}
-          >
-            {parsed.error}
-          </Text>
+            <Button
+              label="コードを表示"
+              icon="Code"
+              size="sm"
+              onPress={showCode}
+            />
+          </View>
+          <View accessibilityRole="alert" style={{ padding: 12, gap: 6 }}>
+            <Text
+              style={{
+                color: theme.colors.statusWarning,
+                fontSize: 13,
+                lineHeight: 20,
+              }}
+            >
+              このMermaid図は表示できません
+            </Text>
+            <Text
+              selectable
+              style={{
+                color: theme.colors.foregroundMuted,
+                fontSize: 12,
+                lineHeight: 18,
+              }}
+            >
+              {parsed.error}
+            </Text>
+          </View>
         </View>
       )}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        {parsed.model && (
-          <Button
-            label="図を開く"
-            icon="Maximize2"
-            size="sm"
-
-            onPress={() => setModal("diagram")}
-          />
-        )}
-        <Button
-          label="記法を表示"
-          icon="Code"
-          size="sm"
-
-          onPress={() => setModal("source")}
-        />
-      </View>
-      <Modal
-        title={modal === "diagram" ? "Mermaid図" : "Mermaidの記法"}
-        open={modal !== null}
-        onOpenChange={(open) => {
-          if (!open) setModal(null);
-        }}
-      >
-        <Modal.Content scrollable>
-          {modal === "diagram" && parsed.model ? (
-            <DiagramViewport
-              key={source}
-              model={parsed.model}
-              theme={theme}
-              width={Math.min(window.width - 80, 800)}
-              height={Math.max(100, Math.min(window.height - 400, 360))}
-            />
-          ) : (
-            <CodeBlock code={source} language="mermaid" copyable={false} />
-          )}
-        </Modal.Content>
-      </Modal>
+      {modal !== null && (
+        <MermaidPopup
+          title={modal === "diagram" ? "Mermaid図" : "Mermaidのコード"}
+          theme={theme}
+          onClose={() => setModal(null)}
+        >
+          {(size) =>
+            modal === "diagram" && parsed.model ? (
+              <DiagramViewport
+                key={source}
+                model={parsed.model}
+                theme={theme}
+                width={size.width}
+                onShowCode={showCode}
+              />
+            ) : (
+              <CodeBlock
+                code={source}
+                copyable={false}
+                maxHeight={size.height}
+                style={{ flex: 1, borderWidth: 0, borderRadius: 0 }}
+              />
+            )
+          }
+        </MermaidPopup>
+      )}
     </View>
   );
 }
@@ -139,14 +144,24 @@ export function DiagramViewport({
   theme,
   width,
   height,
+  onPopup,
+  onShowCode,
 }: {
   model: DiagramModel;
   theme: PluginTheme;
   width: number;
-  height: number;
+  height?: number;
+  onPopup?: () => void;
+  onShowCode?: () => void;
 }) {
-  const [measured, setMeasured] = useState(Math.max(1, width));
-  const size = useMemo(() => ({ width: measured, height }), [measured, height]);
+  const [measured, setMeasured] = useState({
+    width: Math.max(1, width),
+    height: height ?? 1,
+  });
+  const size = useMemo(
+    () => ({ width: measured.width, height: height ?? measured.height }),
+    [measured, height],
+  );
   const content = useMemo(
     () => ({ width: model.width, height: model.height }),
     [model.width, model.height],
@@ -257,9 +272,11 @@ export function DiagramViewport({
   return (
     <View
       style={{
-        borderWidth: 1,
+        flex: height === undefined ? 1 : undefined,
+        minHeight: 0,
+        borderWidth: height === undefined ? 0 : 1,
         borderColor: theme.colors.border,
-        borderRadius: 8,
+        borderRadius: height === undefined ? 0 : 8,
         overflow: "hidden",
       }}
     >
@@ -303,12 +320,30 @@ export function DiagramViewport({
           onPress={() => zoom(1.25)}
         />
         <Button
-          label="全体表示"
+          label="全体を収める"
           icon="Scan"
           size="sm"
 
           onPress={() => commit(fitted(content, size))}
         />
+        {onPopup && (
+          <Button
+            label="ポップアップ"
+            icon="Maximize2"
+            size="sm"
+            onPress={onPopup}
+          />
+        )}
+        {onShowCode && (
+          <View style={{ marginLeft: "auto" }}>
+            <Button
+              label="コードを表示"
+              icon="Code"
+              size="sm"
+              onPress={onShowCode}
+            />
+          </View>
+        )}
       </View>
       <View
         testID="mermaid-viewport"
@@ -316,11 +351,14 @@ export function DiagramViewport({
         pointerEvents="box-only"
         {...responder.panHandlers}
         onLayout={(event) => {
-          const next = event.nativeEvent.layout.width;
-          if (next > 0) setMeasured(next);
+          const next = event.nativeEvent.layout;
+          if (next.width > 0 && next.height > 0)
+            setMeasured({ width: next.width, height: next.height });
         }}
         style={{
           height,
+          flex: height === undefined ? 1 : undefined,
+          minHeight: 0,
           overflow: "hidden",
           backgroundColor: theme.colors.surface0,
         }}
