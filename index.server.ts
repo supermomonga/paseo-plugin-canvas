@@ -1,12 +1,7 @@
-import type {
-  PluginServerContext,
-  PluginSessionOpenRequest,
-} from "@getpaseo/plugin/server";
-import type { AgentSessionConfig } from "@getpaseo/protocol/agent-types";
+import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { createPluginLogger } from "paseo-plugin-helper/server";
 import {
   getCanvas,
-  idSchema,
   listCanvases,
   waitForCanvasChange,
 } from "./shared/contracts";
@@ -20,12 +15,9 @@ import { renderGraphic, readImage } from "./shared/media";
 import { GraphicsRenderer } from "./server/graphics";
 import { workspaceImage } from "./server/images";
 
-type McpRequest = PluginSessionOpenRequest & {
-  mcpServers: NonNullable<AgentSessionConfig["mcpServers"]>;
-};
+const REGISTRATION_ENV = "PASEO_CANVAS_REGISTRATION";
 export default function contribute(server: PluginServerContext) {
   const logger = createPluginLogger("paseo-canvas", { version: "0.1.0" });
-  const sessions = new Sessions();
   const graphics = new GraphicsRenderer();
   server.handle(renderGraphic, (input) => graphics.render(input));
   server.handle(readImage, async ({ workspaceId, src }, { paseo }) => {
@@ -36,11 +28,14 @@ export default function contribute(server: PluginServerContext) {
   });
   const ready = storageDirectory().then(async (directory) => {
     const store = await CanvasStore.open(directory, { waitForOwner: true });
+    let sessions: Sessions | undefined;
     try {
+      sessions = await Sessions.open(store);
       const mcp = await startMcp(store, sessions);
       logger.info("Canvas storage and MCP are ready");
-      return { store, mcp };
+      return { store, mcp, sessions };
     } catch (error) {
+      await sessions?.close();
       await store.close();
       throw error;
     }
@@ -59,45 +54,55 @@ export default function contribute(server: PluginServerContext) {
     const result = await (await ready).store.get(workspaceId, canvasId);
     return { ...result, document: parseDocument(result.canvas.content) };
   });
-  server.before("agent.session_open", async ({ request }) => {
-    if (request.purpose !== "interactive" || request.workspaceId === null)
-      return request;
-    if (!("mcpServers" in request))
-      throw new Error(
-        "paseo-canvas requires the session_open MCP extension. Apply integrations/paseo-session-mcp.patch to Paseo before opening an agent session.",
-      );
-    const scoped = request as McpRequest;
-    idSchema.parse(scoped.agentId);
-    idSchema.parse(scoped.workspaceId);
-    const { mcp } = await ready;
-    if (scoped.mcpServers["paseo-canvas"])
+  server.before("agent.create", async ({ request }) => {
+    if (request.config.mcpServers?.["paseo-canvas"])
       throw new Error("MCP name paseo-canvas is already configured");
-    const token = sessions.issue(scoped.agentId, scoped.workspaceId!);
+    if (request.env?.[REGISTRATION_ENV] !== undefined)
+      throw new Error("Environment name PASEO_CANVAS_REGISTRATION is reserved");
+    const { mcp, sessions } = await ready;
+    const token = sessions.register();
     return {
-      ...scoped,
-      mcpServers: {
-        ...scoped.mcpServers,
-        "paseo-canvas": {
-          type: "http" as const,
-          url: mcp.url,
-          headers: { Authorization: `Bearer ${token}` },
+      ...request,
+      env: { ...request.env, [REGISTRATION_ENV]: token },
+      config: {
+        ...request.config,
+        mcpServers: {
+          ...request.config.mcpServers,
+          "paseo-canvas": {
+            type: "http" as const,
+            url: mcp.url,
+            headers: { Authorization: `Bearer ${token}` },
+          },
         },
       },
     };
   });
-  server.on("agent.created", ({ agent }) =>
-    sessions.title(agent.id, agent.title),
+  server.before("agent.session_open", async ({ request }) => {
+    const env = { ...request.env };
+    const registration = env[REGISTRATION_ENV];
+    delete env[REGISTRATION_ENV];
+    if (request.purpose === "interactive" && request.workspaceId !== null) {
+      await (
+        await ready
+      ).sessions.activate(request.agentId, request.workspaceId, registration);
+    }
+    return { ...request, env };
+  });
+  server.on("agent.created", async ({ agent }) =>
+    (await ready).sessions.title(agent.id, agent.title),
   );
-  server.on("agent.turn_started", ({ agent }) =>
-    sessions.title(agent.id, agent.title),
+  server.on("agent.turn_started", async ({ agent }) =>
+    (await ready).sessions.title(agent.id, agent.title),
   );
-  server.on("agent.archived", ({ agent }) => sessions.revoke(agent.id));
+  server.on("agent.archived", async ({ agent }) =>
+    (await ready).sessions.revoke(agent.id),
+  );
   return async () => {
-    sessions.clear();
     await graphics.close();
     const runtime = await ready.catch(() => null);
     if (runtime) {
       await runtime.mcp.close();
+      await runtime.sessions.close();
       await runtime.store.close();
     }
   };

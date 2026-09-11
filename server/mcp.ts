@@ -33,8 +33,14 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
       : "";
     try {
       sessions.resolve(token);
-    } catch {
-      response.writeHead(401).end();
+    } catch (error) {
+      response
+        .writeHead(
+          error instanceof CanvasError && error.code === "UNAUTHORIZED"
+            ? 401
+            : 503,
+        )
+        .end();
       return;
     }
     if (request.method !== "POST") {
@@ -187,12 +193,17 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
   });
   await new Promise<void>((resolve, reject) => {
     http.once("error", reject);
-    http.listen(0, "127.0.0.1", resolve);
+    http.listen(sessions.port, "127.0.0.1", resolve);
   });
+  try {
+    await sessions.setPort((http.address() as AddressInfo).port);
+  } catch (error) {
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+    throw error;
+  }
   return {
     url: `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`,
     async close() {
-      sessions.clear();
       await Promise.allSettled([...active].map((server) => server.close()));
       http.closeAllConnections();
       await new Promise<void>((resolve, reject) =>

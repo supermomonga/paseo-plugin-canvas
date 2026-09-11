@@ -1,9 +1,18 @@
 import { expect, test } from "vitest";
 import { fork } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  rm,
+  utimes,
+  realpath,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
+import { dataRoot } from "../server/paths";
 import { compilePlugin } from "../node_modules/@getpaseo/server/dist/server/server/plugins/compiler.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -28,22 +37,24 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
   await mkdir(path.join(dir, ".paseo"));
   const bundleFile = path.join(dir, "server.js");
   await writeFile(bundleFile, bundles.serverBundle!);
-  const child = fork(
-    path.join(root, "tests/fixtures/bundle-runner.mjs"),
-    [bundleFile],
-    {
-      execArgv: [],
-      env: {
-        ...process.env,
-        HOME: dir,
-        USERPROFILE: dir,
-        XDG_DATA_HOME: path.join(dir, "data"),
-        LOCALAPPDATA: path.join(dir, "data"),
-        PASEO_HOME: path.join(dir, ".paseo"),
+  const launch = (resume = false) =>
+    fork(
+      path.join(root, "tests/fixtures/bundle-runner.mjs"),
+      [bundleFile, ...(resume ? ["resume"] : [])],
+      {
+        execArgv: [],
+        env: {
+          ...process.env,
+          HOME: dir,
+          USERPROFILE: dir,
+          XDG_DATA_HOME: path.join(dir, "data"),
+          LOCALAPPDATA: path.join(dir, "data"),
+          PASEO_HOME: path.join(dir, ".paseo"),
+        },
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
       },
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-    },
-  );
+    );
+  let child = launch();
   let log = "";
   child.stdout!.on("data", (b) => {
     log += b;
@@ -51,9 +62,10 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
   child.stderr!.on("data", (b) => {
     log += b;
   });
-  const client = new Client({ name: "bundle-test", version: "1" });
+  let client = new Client({ name: "bundle-test", version: "1" });
   try {
     const [message] = await once(child, "message");
+    if (message.type === "error") throw new Error(message.message);
     expect(message, log).toMatchObject({ type: "ready" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(message.config.url), {
@@ -93,11 +105,66 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
       png: true,
     });
     expect(graphic.width).toBeGreaterThan(20);
+    const originalConfig = message.config;
+    for (const crash of [false, true]) {
+      await client.close();
+      const stopped = once(child, "exit");
+      if (crash) child.kill("SIGKILL");
+      else child.send("stop");
+      await stopped;
+      if (crash) {
+        const hostKey = createHash("sha256")
+          .update(await realpath(path.join(dir, ".paseo")))
+          .digest("hex");
+        const saved = path.join(
+          dataRoot(
+            process.platform,
+            {
+              ...process.env,
+              XDG_DATA_HOME: path.join(dir, "data"),
+              LOCALAPPDATA: path.join(dir, "data"),
+            },
+            dir,
+          ),
+          "hosts",
+          hostKey,
+        );
+        await utimes(`${saved}.lock`, new Date(0), new Date(0));
+      }
+      child = launch(true);
+      child.stderr!.on("data", (buffer) => {
+        log += buffer;
+      });
+      const [restarted] = await once(child, "message");
+      if (restarted.type === "error") throw new Error(restarted.message);
+      expect(restarted, log).toMatchObject({
+        type: "ready",
+        config: originalConfig,
+      });
+      client = new Client({ name: "restart-test", version: "1" });
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(originalConfig.url), {
+          requestInit: { headers: originalConfig.headers },
+        }),
+      );
+      const listing = await client.callTool({
+        name: "canvas.list",
+        arguments: {},
+      });
+      expect(listing.isError).not.toBe(true);
+      const items = JSON.parse(
+        (listing.content as { text: string }[])[0].text,
+      ).items;
+      expect(items).toHaveLength(1);
+      expect(items[0].title).toBe("Bundle");
+    }
   } finally {
     await client.close();
-    const exited = once(child, "exit");
-    child.send("stop");
-    await exited;
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.send("stop");
+      await exited;
+    }
     await rm(dir, { recursive: true, force: true });
   }
 }, 60_000);

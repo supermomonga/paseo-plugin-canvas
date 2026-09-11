@@ -16,11 +16,13 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
   cleanup.push(() => rm(dir, { recursive: true, force: true }));
   const store = await CanvasStore.open(dir);
   cleanup.push(() => store.close());
-  const sessions = new Sessions(),
+  const sessions = await Sessions.open(store),
     mcp = await startMcp(store, sessions);
+  cleanup.push(() => sessions.close());
   cleanup.push(() => mcp.close());
   async function connect(agent: string, workspace: string) {
-    const token = sessions.issue(agent, workspace);
+    const token = sessions.register();
+    await sessions.activate(agent, workspace, token);
     const client = new Client({ name: agent, version: "1.0.0" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(mcp.url), {
@@ -81,7 +83,7 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
       })
     ).status,
   ).toBe(403);
-  sessions.revoke("agent-a");
+  await sessions.revoke("agent-a");
   expect(
     (
       await fetch(mcp.url, {

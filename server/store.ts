@@ -115,7 +115,7 @@ export class CanvasStore {
     );
     this.expiryTimer.unref();
   }
-  private assertOpen() {
+  assertOpen() {
     if (this.stopped)
       throw new CanvasError("STORE_UNAVAILABLE", this.stopped.message);
   }
