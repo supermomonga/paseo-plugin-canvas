@@ -4,7 +4,12 @@ import type {
 } from "@getpaseo/plugin/server";
 import type { AgentSessionConfig } from "@getpaseo/protocol/agent-types";
 import { createPluginLogger } from "paseo-plugin-helper/server";
-import { getCanvas, idSchema, listCanvases } from "./shared/contracts";
+import {
+  getCanvas,
+  idSchema,
+  listCanvases,
+  waitForCanvasChange,
+} from "./shared/contracts";
 import { CanvasStore } from "./server/store";
 import { storageDirectory } from "./server/paths";
 import { Sessions } from "./server/sessions";
@@ -26,8 +31,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(readImage, async ({ workspaceId, src }, { paseo }) => {
     const workspace = paseo.workspaces.ref(workspaceId);
     await workspace.refresh();
-    if (!workspace.directory)
-      throw new Error("Workspace directory not found");
+    if (!workspace.directory) throw new Error("Workspace directory not found");
     return workspaceImage(workspace.directory, src);
   });
   const ready = storageDirectory().then(async (directory) => {
@@ -47,6 +51,9 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(listCanvases, async ({ workspaceId }) =>
     (await ready).store.list(workspaceId),
+  );
+  server.handle(waitForCanvasChange, async ({ workspaceId, cursor }) =>
+    (await ready).store.waitForChange(workspaceId, cursor),
   );
   server.handle(getCanvas, async ({ workspaceId, canvasId }) => {
     const result = await (await ready).store.get(workspaceId, canvasId);

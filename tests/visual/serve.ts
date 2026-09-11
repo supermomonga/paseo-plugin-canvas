@@ -2,11 +2,13 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseDocument } from "../../server/document";
+import { CanvasChanges } from "../../server/changes";
 import { GraphicsRenderer } from "../../server/graphics";
 import { workspaceImage } from "../../server/images";
 import { getFixtureQuery } from "./query";
 const root = path.resolve(".test-output/visual");
 const graphics = new GraphicsRenderer();
+const changes = new CanvasChanges();
 const markdown = await readFile("tests/fixtures/gfm.md", "utf8");
 const server = createServer(async (req, res) => {
   try {
@@ -21,7 +23,9 @@ const server = createServer(async (req, res) => {
       const input = JSON.parse(Buffer.concat(chunks).toString());
       const name = req.url.slice(5);
       let result;
-      if (name === "canvas.render_graphic")
+      if (name === "canvas.wait_for_change")
+        result = await changes.wait(input.workspaceId, input.cursor);
+      else if (name === "canvas.render_graphic")
         result = await graphics.render(input);
       else if (name === "canvas.read_image")
         result = await workspaceImage(root, input.src);

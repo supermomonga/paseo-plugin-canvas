@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, expect, test, vi } from "vitest";
+vi.mock("../client/updates", () => ({ useCanvasUpdates: () => null }));
 const nativePlatform = vi.hoisted(() => ({ OS: "web" }));
 vi.mock("react-native", () => ({
   View: "View",
@@ -200,6 +201,12 @@ test.each([false, true])(
       await openCanvas(view);
       expect(JSON.stringify(view.toJSON())).not.toContain("メモ");
     }
+    expect(
+      view.root.findAllByProps({ accessibilityLabel: "Refresh content" }),
+    ).toHaveLength(0);
+    expect(
+      view.root.findAllByProps({ accessibilityLabel: "Refresh canvases" }),
+    ).toHaveLength(0);
     expect(view.root.findByType(Badge).props.label).toBe("Editing");
     expect(JSON.stringify(view.toJSON())).toContain("Agent A");
     expect(JSON.stringify(view.toJSON())).not.toContain(
@@ -261,7 +268,7 @@ test("copy success and failure use the host toast instead of inserting content i
   await act(async () => view.unmount());
 });
 
-test("fetch failure distinguishes an initial failure from cached content and offers retry", async () => {
+test("fetch failure distinguishes an initial failure from cached content and explains automatic retry", async () => {
   queries.list.data = undefined;
   queries.list.error = new Error("offline");
   let view!: ReactTestRenderer;
@@ -274,8 +281,10 @@ test("fetch failure distinguishes an initial failure from cached content and off
       .some((item) => item.children.join("") === "Unable to load canvases"),
   ).toBe(true);
   expect(JSON.stringify(view.toJSON())).not.toContain("last loaded");
-  await act(async () => button(view, "Refresh canvases").props.onPress());
-  expect(queries.list.refetch).toHaveBeenCalled();
+  expect(JSON.stringify(view.toJSON())).toContain("Retrying automatically.");
+  expect(
+    view.root.findAllByProps({ accessibilityLabel: "Refresh canvases" }),
+  ).toHaveLength(0);
   queries.list.data = { items: [summary] };
   await act(async () => view.update(panel(true)));
   expect(JSON.stringify(view.toJSON())).toContain("last loaded");
@@ -291,7 +300,9 @@ test("a remotely deleted selection is explicit and the compact list stays reacha
   await openCanvas(view);
   queries.list.data = { items: [] };
   await act(async () => view.update(panel(true)));
-  expect(JSON.stringify(view.toJSON())).toContain("This canvas has been deleted");
+  expect(JSON.stringify(view.toJSON())).toContain(
+    "This canvas has been deleted",
+  );
   expect(view.root.findAllByType(Tabs)).toHaveLength(0);
   await act(async () => button(view, "Back to canvases").props.onPress());
   expect(JSON.stringify(view.toJSON())).toContain("No canvases yet");

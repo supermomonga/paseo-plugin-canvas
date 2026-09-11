@@ -54,6 +54,15 @@ export const getCanvas = defineContract({
   input: z.object({ workspaceId: idSchema, canvasId: idSchema }),
   output: getResultSchema,
 });
+// Null establishes a fresh cursor; a matching cursor waits for a change.
+export const waitForCanvasChange = defineContract({
+  name: "canvas.wait_for_change",
+  input: z.object({
+    workspaceId: idSchema,
+    cursor: z.string().max(100).nullable(),
+  }),
+  output: z.object({ cursor: z.string() }),
+});
 export type Metadata = z.infer<typeof metadataSchema>;
 export type EditState = z.infer<typeof editStateSchema>;
 export type PublicLock = z.infer<typeof publicLockSchema>;

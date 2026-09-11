@@ -19,6 +19,7 @@ import {
   type Metadata,
   type PublicLock,
 } from "../shared/contracts";
+import { CanvasChanges } from "./changes";
 import { CanvasError, isMissing } from "./errors";
 import { decodeDocument, encodeDocument } from "./format";
 
@@ -31,6 +32,8 @@ type Lock = {
 export const LOCK_TTL_MS = 300_000;
 const MAX_FILE_BYTES = 4_100_000;
 export class CanvasStore {
+  private readonly changes = new CanvasChanges();
+  private expiryTimer?: ReturnType<typeof setTimeout>;
   private locks = new Map<string, Lock>();
   private queues = new Map<string, Promise<unknown>>();
   private stopped: Error | null = null;
@@ -58,7 +61,7 @@ export class CanvasStore {
         ? { retries: 35, minTimeout: 1000, maxTimeout: 1000, factor: 1 }
         : 0,
       onCompromised(error) {
-        if (store) store.stopped = error;
+        if (store) store.stop(error);
       },
     });
     store = new CanvasStore(
@@ -70,10 +73,47 @@ export class CanvasStore {
     return store;
   }
   async close() {
-    this.stopped = new Error("Canvas store is closed");
+    this.stop(new Error("Canvas store is closed"));
     await Promise.allSettled(this.queues.values());
     this.locks.clear();
     await this.release();
+  }
+  private stop(error: Error) {
+    this.stopped = error;
+    clearTimeout(this.expiryTimer);
+    this.changes.close(error);
+  }
+  waitForChange(workspaceId: string, cursor: string | null) {
+    this.assertOpen();
+    idSchema.parse(workspaceId);
+    // Expiry is also checked here after sleep or a system-clock adjustment.
+    for (const key of this.locks.keys()) this.state(key);
+    return this.changes.wait(workspaceId, cursor);
+  }
+  private changed(key: string) {
+    this.changes.publish(key.split("/")[0]);
+  }
+  private scheduleExpiry() {
+    clearTimeout(this.expiryTimer);
+    if (this.stopped || !this.locks.size) return;
+    const now = this.clock(),
+      monotonic = this.monotonic();
+    const delay = Math.min(
+      ...[...this.locks.values()].map((lock) =>
+        Math.min(
+          Date.parse(lock.info.expiresAt) - now,
+          lock.deadline - monotonic,
+        ),
+      ),
+    );
+    this.expiryTimer = setTimeout(
+      () => {
+        for (const key of this.locks.keys()) this.state(key);
+        this.scheduleExpiry();
+      },
+      Math.max(1, delay),
+    );
+    this.expiryTimer.unref();
   }
   private assertOpen() {
     if (this.stopped)
@@ -150,6 +190,8 @@ export class CanvasStore {
       this.monotonic() >= lock.deadline
     ) {
       this.locks.delete(key);
+      this.scheduleExpiry();
+      this.changed(key);
       return { status: "unlocked" };
     }
     return { status: "locked", lock: { ...lock.info } };
@@ -186,8 +228,10 @@ export class CanvasStore {
       // A directory-sync failure after rename leaves the commit outcome uncertain.
       // Stop writes rather than returning a success or reusing an uncertain revision.
       if (committed)
-        this.stopped = new Error(
-          "Canvas durability could not be confirmed; reopen the store",
+        this.stop(
+          new Error(
+            "Canvas durability could not be confirmed; reopen the store",
+          ),
         );
       throw error;
     } finally {
@@ -261,6 +305,7 @@ export class CanvasStore {
         updatedByAgentId: idSchema.parse(actor.agentId),
       };
       await this.write(key, metadata, contentSchema.parse(content));
+      this.changed(key);
       return { canvasId, revision: 1 };
     });
   }
@@ -314,6 +359,8 @@ export class CanvasStore {
         sessionId: actor.sessionId,
         deadline: this.monotonic() + LOCK_TTL_MS,
       });
+      this.scheduleExpiry();
+      this.changed(key);
       return {
         editState: { status: "locked" as const, lock: { ...info } },
         lockToken: token,
@@ -330,6 +377,8 @@ export class CanvasStore {
       lock.info.renewedAt = new Date(now).toISOString();
       lock.info.expiresAt = new Date(now + LOCK_TTL_MS).toISOString();
       lock.deadline = this.monotonic() + LOCK_TTL_MS;
+      this.scheduleExpiry();
+      this.changed(key);
       return { editState: this.state(key, now) };
     });
   }
@@ -339,6 +388,8 @@ export class CanvasStore {
       const { metadata } = await this.read(key);
       this.verify(key, actor, token, metadata);
       this.locks.delete(key);
+      this.scheduleExpiry();
+      this.changed(key);
       return { editState: { status: "unlocked" as const } };
     });
   }
@@ -379,6 +430,7 @@ export class CanvasStore {
           ? previous.content
           : contentSchema.parse(input.content),
       );
+      this.changed(key);
       return { revision: metadata.revision };
     });
   }
@@ -400,12 +452,14 @@ export class CanvasStore {
       try {
         await this.syncDirectory(path.dirname(this.filename(key)));
       } catch (error) {
-        this.stopped = new Error(
-          "Canvas deletion durability could not be confirmed",
+        this.stop(
+          new Error("Canvas deletion durability could not be confirmed"),
         );
         throw error;
       }
       this.locks.delete(key);
+      this.scheduleExpiry();
+      this.changed(key);
       return { deleted: true };
     });
   }

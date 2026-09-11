@@ -24,13 +24,9 @@ import {
   type Canvas,
   type EditState,
 } from "../shared/contracts";
+import { useCanvasUpdates } from "./updates";
 import { Markdown } from "./markdown";
-import {
-  HEADER_HEIGHT,
-  ToolbarButton,
-  titleText,
-  metaText,
-} from "./controls";
+import { HEADER_HEIGHT, ToolbarButton, titleText, metaText } from "./controls";
 
 // Paseo docs/design.md and styles/theme.ts: use the public theme colors and the
 // authored interface scale. The SDK does not expose live typography/spacing tokens.
@@ -83,12 +79,10 @@ function WorkspaceCanvas({
   singlePane,
 }: PluginWorkspacePanelProps & { singlePane: boolean }) {
   const colors = theme.colors;
+  const updateError = useCanvasUpdates(workspaceId);
   const [selected, setSelected] = useState<string | null>(null);
-  const list = useRpcQuery(
-    listCanvases,
-    { workspaceId },
-    { refetchInterval: 2000, retry: false },
-  );
+  const list = useRpcQuery(listCanvases, { workspaceId }, { retry: true });
+  const listError = list.error ?? list.failureReason;
   const canvasId =
     selected ?? (!singlePane ? (list.data?.items[0]?.canvasId ?? null) : null);
   const selectionMissing =
@@ -98,112 +92,122 @@ function WorkspaceCanvas({
   const showList = !singlePane || selected === null;
   const showDetail = !singlePane || selected !== null;
   return (
-    <View
-      style={{
-        flex: 1,
-        minHeight: 0,
-        flexDirection: "row",
-        backgroundColor: colors.surface0,
-      }}
-    >
-      {showList && (
-        <View
-          style={
-            singlePane
-              ? { flex: 1 }
-              : {
-                  width: sidebarWidth,
-                  borderRightWidth: 1,
-                  borderColor: colors.border,
-                }
-          }
+    <View style={{ flex: 1, minHeight: 0 }}>
+      {updateError && (
+        <Text
+          accessibilityRole="alert"
+          style={{ ...metaText, color: colors.statusWarning, padding: 12 }}
         >
+          Live updates interrupted. Reconnecting…
+        </Text>
+      )}
+      <View
+        style={{
+          flex: 1,
+          minHeight: 0,
+          flexDirection: "row",
+          backgroundColor: colors.surface0,
+        }}
+      >
+        {showList && (
           <View
-            style={{
-              height: HEADER_HEIGHT,
-              paddingHorizontal: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 12,
-              borderBottomWidth: 1,
-              borderColor: colors.border,
-            }}
+            style={
+              singlePane
+                ? { flex: 1 }
+                : {
+                    width: sidebarWidth,
+                    borderRightWidth: 1,
+                    borderColor: colors.border,
+                  }
+            }
           >
-            <Icon name="NotebookPen" size={20} color={colors.foregroundMuted} />
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text
-                accessibilityRole="header"
-                style={{ ...titleText, color: colors.foreground }}
-              >
-                Canvases
-              </Text>
-              <View style={{ height: 20, justifyContent: "center" }}>
-                <Text style={{ ...metaText, color: colors.foregroundMuted }}>
-                  {list.data
-                    ? `${list.data.items.length} ${list.data.items.length === 1 ? "canvas" : "canvases"}`
-                    : "Loading…"}
+            <View
+              style={{
+                height: HEADER_HEIGHT,
+                paddingHorizontal: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                borderBottomWidth: 1,
+                borderColor: colors.border,
+              }}
+            >
+              <Icon
+                name="NotebookPen"
+                size={20}
+                color={colors.foregroundMuted}
+              />
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text
+                  accessibilityRole="header"
+                  style={{ ...titleText, color: colors.foreground }}
+                >
+                  Canvases
                 </Text>
+                <View style={{ height: 20, justifyContent: "center" }}>
+                  <Text style={{ ...metaText, color: colors.foregroundMuted }}>
+                    {list.data
+                      ? `${list.data.items.length} ${list.data.items.length === 1 ? "canvas" : "canvases"}`
+                      : "Loading…"}
+                  </Text>
+                </View>
               </View>
             </View>
-            <RefreshButton
-              accessibilityLabel="Refresh canvases"
-              onRefresh={() => list.refetch()}
-            />
-          </View>
-          {list.error && (
-            <ReadError
-              theme={theme}
-              error={list.error}
-              stale={!!list.data}
-              subject="canvases"
-            />
-          )}
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ flexGrow: 1, padding: 8, gap: 4 }}
-          >
-            {list.isLoading && (
-              <CenteredText theme={theme}>Loading…</CenteredText>
-            )}
-            {list.data?.items.length === 0 && (
-              <EmptyState
-                icon={null}
-                title="No canvases yet"
-                description="Ask an agent to create a canvas"
-                style={{ flex: 1, padding: 16 }}
-              />
-            )}
-            {list.data?.items.map((item) => (
-              <CanvasRow
-                key={item.canvasId}
-                title={item.title}
-                state={item.editState}
-                active={!singlePane && item.canvasId === canvasId}
+            {listError && (
+              <ReadError
                 theme={theme}
-                onPress={() => setSelected(item.canvasId)}
+                error={listError}
+                stale={!!list.data}
+                subject="canvases"
               />
-            ))}
-          </ScrollView>
-        </View>
-      )}
-      {showDetail && (
-        <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-          {canvasId ? (
-            <CanvasDetail
-              key={canvasId}
-              workspaceId={workspaceId}
-              canvasId={canvasId}
-              missing={selectionMissing}
-              theme={theme}
-              platform={layout.platform}
-              singlePane={singlePane}
-              onBack={() => setSelected(null)}
-            />
-          ) : (
-            <CenteredText theme={theme}>Select a canvas</CenteredText>
-          )}
-        </View>
-      )}
+            )}
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ flexGrow: 1, padding: 8, gap: 4 }}
+            >
+              {list.isLoading && !listError && (
+                <CenteredText theme={theme}>Loading…</CenteredText>
+              )}
+              {list.data?.items.length === 0 && (
+                <EmptyState
+                  icon={null}
+                  title="No canvases yet"
+                  description="Ask an agent to create a canvas"
+                  style={{ flex: 1, padding: 16 }}
+                />
+              )}
+              {list.data?.items.map((item) => (
+                <CanvasRow
+                  key={item.canvasId}
+                  title={item.title}
+                  state={item.editState}
+                  active={!singlePane && item.canvasId === canvasId}
+                  theme={theme}
+                  onPress={() => setSelected(item.canvasId)}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        )}
+        {showDetail && (
+          <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            {canvasId ? (
+              <CanvasDetail
+                key={canvasId}
+                workspaceId={workspaceId}
+                canvasId={canvasId}
+                missing={selectionMissing}
+                theme={theme}
+                platform={layout.platform}
+                singlePane={singlePane}
+                onBack={() => setSelected(null)}
+              />
+            ) : (
+              <CenteredText theme={theme}>Select a canvas</CenteredText>
+            )}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -303,8 +307,9 @@ function CanvasDetail({
   const detail = useRpcQuery(
     getCanvas,
     { workspaceId, canvasId },
-    { enabled: !missing, refetchInterval: 2000, retry: false },
+    { enabled: !missing, retry: true },
   );
+  const detailError = detail.error ?? detail.failureReason;
   const canvas = missing ? undefined : detail.data?.canvas;
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
@@ -385,11 +390,6 @@ function CanvasDetail({
           disabled={!canvas}
           onPress={() => setDetailsOpen(true)}
         />
-        <RefreshButton
-          accessibilityLabel="Refresh content"
-          disabled={missing}
-          onRefresh={() => detail.refetch()}
-        />
       </View>
       <View
         style={{
@@ -432,23 +432,21 @@ function CanvasDetail({
               }}
             />
           </>
-        ) : (
-          null
-        )}
+        ) : null}
       </View>
       {missing ? (
         <CenteredText theme={theme}>This canvas has been deleted</CenteredText>
       ) : (
         <>
-          {detail.error && (
+          {detailError && (
             <ReadError
               theme={theme}
-              error={detail.error}
+              error={detailError}
               stale={!!canvas}
               subject="content"
             />
           )}
-          {detail.isLoading && (
+          {detail.isLoading && !detailError && (
             <CenteredText theme={theme}>Loading…</CenteredText>
           )}
           {canvas && (
@@ -564,34 +562,6 @@ function CanvasDetails({
   );
 }
 
-function RefreshButton({
-  onRefresh,
-  disabled = false,
-  accessibilityLabel,
-}: {
-  onRefresh: () => Promise<unknown>;
-  disabled?: boolean;
-  accessibilityLabel: string;
-}) {
-  const [refreshing, setRefreshing] = useState(false);
-  return (
-    <ToolbarButton
-      icon="RefreshCw"
-      accessibilityLabel={accessibilityLabel}
-      disabled={disabled}
-      loading={refreshing}
-      onPress={async () => {
-        setRefreshing(true);
-        try {
-          await onRefresh();
-        } finally {
-          setRefreshing(false);
-        }
-      }}
-    />
-  );
-}
-
 function ReadError({
   theme,
   error,
@@ -618,8 +588,8 @@ function ReadError({
       </Text>
       <Text style={{ ...metaText, color: theme.colors.foregroundMuted }}>
         {stale
-          ? "Showing the last loaded content. Please refresh."
-          : "Please refresh."}
+          ? "Showing the last loaded content. Retrying automatically."
+          : "Retrying automatically."}
       </Text>
       <Text
         selectable

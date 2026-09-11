@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { View, Text, Pressable, useWindowDimensions } from "react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,16 +13,20 @@ import { Icon, Modal, useToast, FixtureToast } from "./host";
 initClientHelpers({
   Icon,
   Modal,
-  useRpc: (contract) => async (input) => {
-    const response = await fetch(`/rpc/${contract.name}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error);
-    return data;
-  },
+  useRpc: (contract) =>
+    useCallback(
+      async (input) => {
+        const response = await fetch(`/rpc/${contract.name}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+        return data;
+      },
+      [contract],
+    ),
   useToast,
   ScrollView: React.forwardRef<
     ScrollView,

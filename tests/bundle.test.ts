@@ -60,11 +60,19 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
         requestInit: { headers: message.config.headers },
       }),
     );
+    const initialWatch = once(child, "message");
+    child.send({ type: "watch", cursor: null });
+    const [initial] = await initialWatch;
+    const changedReply = once(child, "message");
+    child.send({ type: "watch", cursor: initial.cursor });
     const result = await client.callTool({
       name: "canvas.create",
       arguments: { title: "Bundle", content: "# Bundle content" },
     });
     expect(result.isError, JSON.stringify(result)).not.toBe(true);
+    const [changed] = await changedReply;
+    expect(changed.type).toBe("changed");
+    expect(changed.cursor).not.toBe(initial.cursor);
     const reply = once(child, "message");
     child.send("list");
     const [list] = await reply;

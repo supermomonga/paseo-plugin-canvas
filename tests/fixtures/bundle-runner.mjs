@@ -32,6 +32,13 @@ try {
   });
   process.send({ type: "ready", config: request.mcpServers["paseo-canvas"] });
   process.on("message", async (message) => {
+    if (message?.type === "watch") {
+      const result = await handlers.get("canvas.wait_for_change")({
+        workspaceId: "bundle-workspace",
+        cursor: message.cursor,
+      });
+      process.send({ type: "changed", ...result });
+    }
     if (message === "list")
       process.send({
         type: "list",
