@@ -35,6 +35,7 @@ initClientHelpers({
 });
 const queryClient = new QueryClient();
 import { CanvasPanel } from "../../client/panel";
+import { CanvasActivityRow, CanvasSelection } from "../../client/activity";
 const light = {
   surface0: "#ffffff",
   surface1: "#fafafa",
@@ -63,6 +64,8 @@ const dark = {
 };
 function Preview() {
   const [darkMode, setDarkMode] = useState(true);
+  const [timeline, setTimeline] = useState(false);
+  const [selection] = useState(() => new CanvasSelection());
   const { width } = useWindowDimensions();
   useEffect(() => {
     document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
@@ -92,6 +95,12 @@ function Preview() {
             Canvas · UI preview
           </Text>
           <Button
+            size="sm"
+            variant="secondary"
+            label={timeline ? "Canvas" : "Timeline"}
+            onPress={() => setTimeline((value) => !value)}
+          />
+          <Button
             variant="secondary"
             size="sm"
             icon={darkMode ? "Sun" : "Moon"}
@@ -100,13 +109,50 @@ function Preview() {
             onPress={() => setDarkMode((value) => !value)}
           />
         </View>
-        <CanvasPanel
-          context="workspace"
-          workspaceId="test"
-          host={{ id: "test", label: "Test" }}
-          layout={{ compact: width < 500, platform: "web" }}
-          theme={{ colors: darkMode ? dark : light }}
-        />
+        {timeline ? (
+          <View
+            style={{
+              flex: 1,
+              padding: 16,
+              backgroundColor: darkMode ? dark.surface0 : light.surface0,
+            }}
+          >
+            <CanvasActivityRow
+              agentId="agent-a"
+              timestamp={new Date()}
+              host={{ id: "test", label: "Test" }}
+              layout={{ compact: width < 500, platform: "web" }}
+              theme={{ colors: darkMode ? dark : light }}
+              item={{
+                type: "plugin",
+                kind: "canvas-activity",
+                version: 1,
+                data: {
+                  workspaceId: "test",
+                  canvasId: "example-canvas",
+                  title: "Implementation plan",
+                  revision: 3,
+                  action: "updated",
+                  warningCount: 2,
+                  savedAt: "2026-09-12T00:00:00Z",
+                },
+              }}
+              onOpen={(activity) => {
+                selection.select(activity.workspaceId, activity.canvasId);
+                setTimeline(false);
+              }}
+            />
+          </View>
+        ) : (
+          <CanvasPanel
+            selection={selection}
+            context="workspace"
+            workspaceId="test"
+            host={{ id: "test", label: "Test" }}
+            layout={{ compact: width < 500, platform: "web" }}
+            theme={{ colors: darkMode ? dark : light }}
+          />
+        )}
         <FixtureToast />
       </View>
     </PluginThemeProvider>

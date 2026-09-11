@@ -5,3 +5,4 @@
 * [5. Parse and sanitize Markdown on the daemon](0005-parse-and-sanitize-markdown-on-the-daemon.md)
 * [6. Render diagrams and mathematics without Chromium or WebView](0006-render-diagrams-and-mathematics-without-chromium-or-webview.md)
 * [7. Refresh canvases through workspace-scoped long polling](0007-refresh-canvases-through-workspace-scoped-long-polling.md)
+* [8. Return rendering diagnostics and open canvases from plugin timeline rows](0008-return-rendering-diagnostics-and-open-canvases-from-plugin-timeline-rows.md)

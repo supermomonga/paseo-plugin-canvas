@@ -82,6 +82,12 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
       arguments: { title: "Bundle", content: "# Bundle content" },
     });
     expect(result.isError, JSON.stringify(result)).not.toBe(true);
+    const created = JSON.parse((result.content as { text: string }[])[0].text);
+    expect(created).toMatchObject({
+      saved: true,
+      timeline: "queued",
+      diagnostics: [],
+    });
     const [changed] = await changedReply;
     expect(changed.type).toBe("changed");
     expect(changed.cursor).not.toBe(initial.cursor);
@@ -157,6 +163,30 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
       ).items;
       expect(items).toHaveLength(1);
       expect(items[0].title).toBe("Bundle");
+      const activityReply = once(child, "message");
+      child.send("sync-activity");
+      const [activity] = await activityReply;
+      expect(activity.type).toBe("activity");
+      // Stock 0.8.0 does not wire a durable store for appended plugin rows.
+      // Pending plugin notifications survive restart; already delivered rows
+      // are owned by Paseo and disappear when its in-memory timeline is lost.
+      if (crash) {
+        expect(activity.items).toEqual([]);
+        continue;
+      }
+      expect(activity.items).toHaveLength(1);
+      expect(activity.items[0]).toMatchObject({
+        type: "plugin",
+        pluginId: "paseo-canvas",
+        kind: "canvas-activity",
+        version: 1,
+        data: {
+          workspaceId: "bundle-workspace",
+          canvasId: created.canvasId,
+          revision: 1,
+          action: "created",
+        },
+      });
     }
   } finally {
     await client.close();

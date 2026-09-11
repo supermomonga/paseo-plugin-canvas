@@ -12,6 +12,8 @@ Let one agent write an implementation plan and another read it in a separate ses
 - **Preview and source views:** GFM, alerts, footnotes, images, selected Mermaid diagrams, and mathematics.
 - **Visible editing ownership:** renewable locks and revision checks prevent conflicting writes while other agents continue reading.
 - **Automatic updates:** list, document, and lock state refresh when changes occur, without reload buttons.
+- **Agent feedback:** create/update results report unsupported Mermaid syntax with document line numbers and repair hints.
+- **Timeline actions:** canvas saves add a dedicated activity row with an **Open canvas** button.
 - **Persistent storage:** documents survive restarts without creating files in the project tree.
 - **Paseo integration:** a shared React Native UI built with public SDK components and `paseo-plugin-helper`, adapting to wide and compact panels.
 
@@ -60,6 +62,10 @@ If upgrading from the earlier implementation that required a core patch, create 
 
 Both agents see the same documents. Editing ownership remains visible, and changes appear automatically. Wide panels show a list/detail split; compact panels navigate between those views.
 
+Creating or editing a canvas adds a row to the editing agent's timeline. **Open canvas** opens its workspace panel and selects that document, including when the panel is closed. It opens the latest saved content; the revision in the row describes the save that produced the notification. Deleted documents show a deletion message.
+
+Timeline delivery runs while a Paseo client has the plugin loaded and the app is active, independently of the Canvas panel. Pending notifications are stored on the daemon and retried after reconnecting. **Paseo 0.8.0 does not preserve appended plugin rows across daemon restarts.** Already delivered rows are not replayed; canvases remain available from the workspace panel. This uses public timeline/panel APIs, without custom URL handlers or a core patch.
+
 ## Markdown support
 
 | Content | Supported behavior |
@@ -100,6 +106,18 @@ For an edit, read the canvas, acquire its lock, update using the current revisio
 
 The public lock ID differs from the secret `lockToken`. List/get expose the owner and lease timestamps but never the secret. Lock changes do not increment the document revision. Reads remain available during editing.
 
+### Save results and Mermaid diagnostics
+
+`canvas.create` and `canvas.update` return `canvasId`, `revision`, and `saved: true` after a successful write. Rendering diagnostics are advisory: unsupported Mermaid is saved so the agent can fix it with a subsequent locked update using the returned revision.
+
+- `diagnosticsStatus`: `complete` or `failed`. A completed check uses the same Markdown grammar and Mermaid model as the preview, including its input/layout limits.
+- `diagnostics`: entries with `code: "MERMAID_NOT_RENDERABLE"`, `severity: "warning"`, a one-based Mermaid `block` number, one-based document `line`/`endLine`, a `source` excerpt, `message`, and `hint`.
+- `diagnosticCount` and `diagnosticsTruncated`: total count and whether the response omits entries. At most 32 entries and 500 source characters per entry are returned. These fields accompany completed diagnostics.
+- `timeline`: `queued` or `failed`, describing notification scheduling rather than delivery confirmation.
+- `warnings`: operational failures such as `DIAGNOSTICS_FAILED` or `TIMELINE_QUEUE_FAILED`. These do not undo the saved document. Do not repeat `canvas.create` to retry a notification.
+
+Title-only updates diagnose the retained content. Failed authorization, locking, revision checks, or writes do not produce successful-save notifications. Ordinary assistant Markdown messages are not rewritten.
+
 ## Storage
 
 Data lives on the **Paseo daemon host**, outside the project directory.
@@ -113,6 +131,8 @@ Data lives on the **Paseo daemon host**, outside the project directory.
 ```text
 <data-root>/hosts/<host-key>/
 ├── mcp.json
+├── activity/
+│   └── <canvas-id>-<revision>.json
 └── <workspace-id>/
     └── <canvas-id>.md
 ```
@@ -124,6 +144,8 @@ Markdown files store identity, revision, timestamps, and attribution in YAML fro
 A `proper-lockfile` lease gives one plugin process ownership of the storage area. After a crash, the owner lease becomes stale after 30 seconds; startup waits for recovery. Local disks are the storage model. Concurrent external editing and network shares are unsupported.
 
 Documents survive plugin/daemon restarts and workspace archival. **Edit leases are memory-only and expire on restart.** MCP bindings are persisted separately.
+
+`activity/` contains undelivered timeline notifications with canvas identity, title, revision, warning count and agent identity, but no Markdown body or credentials. Files use mode `0600` and are removed after Paseo acknowledges the append or the row is found in canonical history. This reconciliation avoids replaying a row after a lost response, but the API does not provide an atomic, exactly-once append. Canvas commit and notification enqueue are separate writes; a crash between them can leave a saved canvas without a timeline notification.
 
 ## MCP connection and access
 

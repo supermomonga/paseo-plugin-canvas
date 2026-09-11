@@ -10,6 +10,12 @@ import {
 } from "@getpaseo/plugin/client/react-native";
 import { initClientHelpers } from "paseo-plugin-helper/client";
 import { CanvasPanel } from "./client/panel";
+import {
+  CanvasActivityRow,
+  CanvasSelection,
+  startActivitySync,
+} from "./client/activity";
+import { canvasActivitySchema } from "./shared/activity";
 export default function contribute(client: PluginClientContext) {
   initClientHelpers({
     Icon,
@@ -21,12 +27,28 @@ export default function contribute(client: PluginClientContext) {
     TextInput,
     copyText,
   });
+  const selection = new CanvasSelection();
+  const stopActivitySync = startActivitySync(client);
+  const removeActivity = client.addTimelineRenderer({
+    kind: "canvas-activity",
+    version: 1,
+    schema: canvasActivitySchema,
+    Component: (props) => (
+      <CanvasActivityRow
+        {...props}
+        onOpen={(activity) => {
+          selection.select(activity.workspaceId, activity.canvasId);
+          client.openPanel("canvas", { workspaceId: activity.workspaceId });
+        }}
+      />
+    ),
+  });
   const removePanel = client.addWorkspacePanel({
     id: "canvas",
     title: "Canvas",
     icon: "NotebookPen",
     context: "workspace",
-    Component: CanvasPanel,
+    Component: (props) => <CanvasPanel {...props} selection={selection} />,
   });
   const removeCommand = client.addCommandCenterItem({
     id: "open-canvas",
@@ -38,6 +60,8 @@ export default function contribute(client: PluginClientContext) {
     },
   });
   return () => {
+    stopActivitySync();
+    removeActivity();
     removeCommand();
     removePanel();
   };

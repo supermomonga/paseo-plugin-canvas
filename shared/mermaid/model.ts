@@ -2,9 +2,22 @@ import { parseFlowchart } from "./flowchart";
 import { parseSequence } from "./sequence";
 import { layoutFlowchart, layoutSequence } from "./layout";
 
+export class MermaidDiagnosticError extends Error {
+  constructor(
+    message: string,
+    readonly hint = "Use flowchart/graph with supported node shapes and edges, or sequenceDiagram with participants, messages and notes. Expand unsupported control blocks into explicit steps.",
+    readonly sourceLines: string[] = [],
+  ) {
+    super(message);
+    this.name = "MermaidDiagnosticError";
+  }
+}
+
 export function diagramModel(source: string) {
   if (source.length > 50_000)
-    throw new Error("Mermaid source must be no longer than 50,000 characters.");
+    throw new MermaidDiagnosticError(
+      "Mermaid source must be no longer than 50,000 characters.",
+    );
   // Do not discard front matter, init directives, or text preceding a header.
   const lines = source
     .split(/\r?\n/)
@@ -12,11 +25,13 @@ export function diagramModel(source: string) {
     .filter((line) => line && !/^%%(?!\{)/.test(line));
   const first = lines[0] ?? "";
   if (lines.some((line) => /^%%\{/.test(line)))
-    throw new Error("Mermaid configuration directives are not supported.");
+    throw new MermaidDiagnosticError(
+      "Mermaid configuration directives are not supported.",
+    );
   if (/^(flowchart|graph)(\s|$)/i.test(first)) {
     const chart = parseFlowchart(source);
     if (!chart || !chart.nodes.length)
-      throw new Error(
+      throw new MermaidDiagnosticError(
         "Check the flowchart syntax. Place the declaration and diagram content on separate lines.",
       );
     if (chart.skipped.length) throw unsupported(chart.skipped);
@@ -28,11 +43,13 @@ export function diagramModel(source: string) {
           node.shape === "unsupported",
       )
     )
-      throw new Error(
+      throw new MermaidDiagnosticError(
         "This node shape is not supported. Use a rectangle, rounded rectangle, stadium, subroutine, circle, or diamond.",
       );
     if (chart.nodes.length > 200 || chart.edges.length > 300)
-      throw new Error("Diagrams are limited to 200 nodes and 300 edges.");
+      throw new MermaidDiagnosticError(
+        "Diagrams are limited to 200 nodes and 300 edges.",
+      );
     const layout = layoutFlowchart(chart);
     checkSize(layout);
     return {
@@ -46,9 +63,13 @@ export function diagramModel(source: string) {
     const diagram = parseSequence(source)!;
     if (diagram.skipped.length) throw unsupported(diagram.skipped);
     if (!diagram.participants.length)
-      throw new Error("A sequence diagram requires participants or messages.");
+      throw new MermaidDiagnosticError(
+        "A sequence diagram requires participants or messages.",
+      );
     if (diagram.participants.length > 30 || diagram.events.length > 100)
-      throw new Error("Sequence diagrams are limited to 30 participants and 100 events.");
+      throw new MermaidDiagnosticError(
+        "Sequence diagrams are limited to 30 participants and 100 events.",
+      );
     const layout = layoutSequence(
       diagram.participants,
       diagram.events.length,
@@ -62,7 +83,7 @@ export function diagramModel(source: string) {
       height: layout.height,
     };
   }
-  throw new Error(
+  throw new MermaidDiagnosticError(
     "Supported diagram types are flowchart, graph, and sequenceDiagram. Other types are not supported.",
   );
 }
@@ -71,8 +92,10 @@ function unsupported(lines: string[]) {
     .slice(0, 3)
     .map((line) => line.slice(0, 100))
     .join("\n");
-  return new Error(
+  return new MermaidDiagnosticError(
     `Unsupported or unrecognized syntax on ${lines.length} ${lines.length === 1 ? "line" : "lines"}. Partial diagrams cannot be displayed.\n${sample}`,
+    undefined,
+    lines,
   );
 }
 function checkSize(size: { width: number; height: number }) {
@@ -82,6 +105,8 @@ function checkSize(size: { width: number; height: number }) {
     size.width > 8000 ||
     size.height > 8000
   )
-    throw new Error("The diagram is too large. Split it into smaller diagrams.");
+    throw new MermaidDiagnosticError(
+      "The diagram is too large. Split it into smaller diagrams.",
+    );
 }
 export type DiagramModel = ReturnType<typeof diagramModel>;

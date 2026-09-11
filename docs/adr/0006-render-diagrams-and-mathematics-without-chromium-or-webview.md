@@ -6,6 +6,8 @@ date: 2026-09-11
 links:
 - target: 5
   kind: relatesto
+- target: 8
+  kind: RelatesTo
 ---
 
 # Render diagrams and mathematics without Chromium or WebView

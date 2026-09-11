@@ -306,7 +306,7 @@ export class CanvasStore {
       };
       await this.write(key, metadata, contentSchema.parse(content));
       this.changed(key);
-      return { canvasId, revision: 1 };
+      return { canvasId, revision: 1, snapshot: { metadata, content } };
     });
   }
   private verify(
@@ -423,15 +423,17 @@ export class CanvasStore {
         updatedAt: new Date(this.clock()).toISOString(),
         updatedByAgentId: actor.agentId,
       };
-      await this.write(
-        key,
-        metadata,
+      const content =
         input.content === undefined
           ? previous.content
-          : contentSchema.parse(input.content),
-      );
+          : contentSchema.parse(input.content);
+      await this.write(key, metadata, content);
       this.changed(key);
-      return { revision: metadata.revision };
+      return {
+        canvasId: input.canvasId,
+        revision: metadata.revision,
+        snapshot: { metadata, content },
+      };
     });
   }
   async delete(

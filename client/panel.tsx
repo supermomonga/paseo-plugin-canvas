@@ -1,4 +1,4 @@
-import { useState, useRef, type ReactNode } from "react";
+import { useState, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import {
   Icon,
@@ -25,6 +25,7 @@ import {
   type EditState,
 } from "../shared/contracts";
 import { useCanvasUpdates } from "./updates";
+import { CanvasSelection } from "./activity";
 import { Markdown } from "./markdown";
 import { HEADER_HEIGHT, ToolbarButton, titleText, metaText } from "./controls";
 
@@ -46,7 +47,10 @@ function lockLabel(state: EditState) {
     : "Unlocked";
 }
 
-export function CanvasPanel(props: PluginWorkspacePanelProps) {
+export function CanvasPanel(
+  props: PluginWorkspacePanelProps & { selection?: CanvasSelection },
+) {
+  const [localSelection] = useState(() => new CanvasSelection());
   const [width, setWidth] = useState<number | null>(null);
   // A split workspace pane can be narrower than the host's form factor. Keep
   // the canonical 320 + 400 list/detail topology only where it actually fits.
@@ -65,6 +69,7 @@ export function CanvasPanel(props: PluginWorkspacePanelProps) {
         <WorkspaceCanvas
           key={props.workspaceId}
           {...props}
+          selection={props.selection ?? localSelection}
           singlePane={singlePane}
         />
       </PluginThemeProvider>
@@ -77,10 +82,19 @@ function WorkspaceCanvas({
   theme,
   layout,
   singlePane,
-}: PluginWorkspacePanelProps & { singlePane: boolean }) {
+  selection,
+}: PluginWorkspacePanelProps & {
+  singlePane: boolean;
+  selection: CanvasSelection;
+}) {
   const colors = theme.colors;
   const updateError = useCanvasUpdates(workspaceId);
-  const [selected, setSelected] = useState<string | null>(null);
+  const selected = useSyncExternalStore(
+    (listener) => selection.subscribe(workspaceId, listener),
+    () => selection.get(workspaceId),
+  );
+  const setSelected = (canvasId: string | null) =>
+    selection.select(workspaceId, canvasId);
   const [listOpen, setListOpen] = useState(true);
   const [listSide, setListSide] = useState<"left" | "right">("left");
   const list = useRpcQuery(listCanvases, { workspaceId }, { retry: true });

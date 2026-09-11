@@ -33,7 +33,7 @@ async function setup() {
 
 test("persistent endpoint and scoped registrations survive reload; revoked access remains revoked", async () => {
   const { directory, store, sessions } = await setup();
-  const mcp = await startMcp(store, sessions);
+  const mcp = await startMcp(store, sessions, { enqueue: async () => {} });
   const tokens = await Promise.all(
     ["a", "b", "c"].map(async (id) => {
       const token = sessions.register();
@@ -57,7 +57,7 @@ test("persistent endpoint and scoped registrations survive reload; revoked acces
   );
   const restored = await Sessions.open(store);
   cleanup.push(() => restored.close());
-  const next = await startMcp(store, restored);
+  const next = await startMcp(store, restored, { enqueue: async () => {} });
   cleanup.push(() => next.close());
   expect(next.url).toBe(mcp.url);
   expect(restored.resolve(tokens[0])).toEqual({ ...actor, title: "Agent A" });
@@ -100,7 +100,9 @@ test("a saved port conflict fails without silently changing persisted connection
   const port = (occupied.address() as AddressInfo).port;
   await sessions.setPort(port);
   const before = await readFile(path.join(directory, "mcp.json"), "utf8");
-  await expect(startMcp(store, sessions)).rejects.toMatchObject({
+  await expect(
+    startMcp(store, sessions, { enqueue: async () => {} }),
+  ).rejects.toMatchObject({
     code: "EADDRINUSE",
   });
   expect(await readFile(path.join(directory, "mcp.json"), "utf8")).toBe(before);
@@ -121,7 +123,7 @@ test("corrupt or symlinked registration files are not overwritten", async () => 
 
 test("failed authorization persistence disables access instead of serving uncertain state", async () => {
   const { directory, store, sessions } = await setup();
-  const mcp = await startMcp(store, sessions);
+  const mcp = await startMcp(store, sessions, { enqueue: async () => {} });
   cleanup.push(() => mcp.close());
   const token = sessions.register();
   await sessions.activate("a", "workspace", token);

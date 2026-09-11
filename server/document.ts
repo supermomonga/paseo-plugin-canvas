@@ -83,10 +83,11 @@ function restrictRawHtml() {
     });
   };
 }
-const processor = unified()
+export const markdownParser = unified()
   .use(remarkParse)
   .use(remarkGfm)
-  .use(remarkMath)
+  .use(remarkMath);
+const processor = markdownParser()
   .use(remarkEmoji, { emoticon: false })
   .use(extensions)
   .use(remarkRehype, {

@@ -12,9 +12,72 @@ import {
 import { CanvasError } from "./errors";
 import type { CanvasStore } from "./store";
 import type { Sessions } from "./sessions";
-export async function startMcp(store: CanvasStore, sessions: Sessions) {
+import type { CanvasActivityQueue } from "./activity";
+import { diagnoseMarkdown } from "./diagnostics";
+import type { Actor } from "../shared/contracts";
+export async function startMcp(
+  store: CanvasStore,
+  sessions: Sessions,
+  activity: Pick<CanvasActivityQueue, "enqueue">,
+) {
+  const pending = new Set<Promise<unknown>>();
+  let closing = false;
+  async function saved(
+    actor: Actor,
+    action: "created" | "updated",
+    value: Awaited<ReturnType<CanvasStore["update"]>>,
+  ) {
+    const warnings: { code: string; message: string }[] = [];
+    let diagnosis: ReturnType<typeof diagnoseMarkdown> | null = null;
+    try {
+      diagnosis = diagnoseMarkdown(value.snapshot.content);
+    } catch (error) {
+      console.error("[paseo-canvas] Markdown diagnostics failed", error);
+      warnings.push({
+        code: "DIAGNOSTICS_FAILED",
+        message:
+          "Canvas saved, but rendering diagnostics could not be completed.",
+      });
+    }
+    let timeline: "queued" | "failed" = "queued";
+    try {
+      await activity.enqueue(actor.agentId, {
+        workspaceId: actor.workspaceId,
+        canvasId: value.canvasId,
+        title: value.snapshot.metadata.title,
+        revision: value.revision,
+        action,
+        warningCount: diagnosis?.diagnosticCount ?? 0,
+        savedAt: value.snapshot.metadata.updatedAt,
+      });
+    } catch (error) {
+      timeline = "failed";
+      console.error(
+        "[paseo-canvas] Timeline notification could not be queued",
+        error,
+      );
+      warnings.push({
+        code: "TIMELINE_QUEUE_FAILED",
+        message:
+          "Canvas saved, but its timeline notification could not be queued. Do not repeat the save.",
+      });
+    }
+    return {
+      canvasId: value.canvasId,
+      revision: value.revision,
+      saved: true,
+      diagnosticsStatus: diagnosis ? "complete" : "failed",
+      ...diagnosis,
+      warnings,
+      timeline,
+    };
+  }
   const active = new Set<McpServer>();
   const http = createServer(async (request, response) => {
+    if (closing) {
+      response.writeHead(503).end();
+      return;
+    }
     if (request.url !== "/mcp") {
       response.writeHead(404).end();
       return;
@@ -51,7 +114,7 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
       { name: "paseo-canvas", version: "0.1.0" },
       {
         instructions:
-          "Shared GFM documents in your Paseo workspace. Use canvas.list/get to read. Before update/delete acquire a lock, use its lockToken and the current expectedRevision. Locks last five minutes; renew before expiry and release after editing. On conflict, read again. Canvas files are outside the project. Never write them directly.",
+          "Shared GFM documents in your Paseo workspace. Use canvas.list/get to read. Before update/delete acquire a lock, use its lockToken and the current expectedRevision. Locks last five minutes; renew before expiry and release after editing. On conflict, read again. Canvas files are outside the project. Never write them directly. Create/update return rendering diagnostics with document line numbers and repair hints. Fix unsupported Mermaid using canvas.update and the returned revision. saved:true means the write succeeded even when warnings are present; do not repeat canvas.create. A dedicated timeline row lets users open the canvas inside Paseo.",
       },
     );
     const transport = new StreamableHTTPServerTransport({
@@ -64,8 +127,10 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
       void server.close();
     });
     const result = async (action: () => Promise<unknown>) => {
+      const operation = Promise.resolve().then(action);
+      pending.add(operation);
       try {
-        const value = await action();
+        const value = await operation;
         return {
           content: [{ type: "text" as const, text: JSON.stringify(value) }],
         };
@@ -86,6 +151,8 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
           isError: true,
           content: [{ type: "text" as const, text: JSON.stringify(value) }],
         };
+      } finally {
+        pending.delete(operation);
       }
     };
     const readAnnotations = {
@@ -116,19 +183,27 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
     server.registerTool(
       "canvas.create",
       {
-        description: "Create a new persistent GFM canvas in this workspace.",
+        description:
+          "Create a persistent GFM canvas. Returns saved revision, Mermaid rendering diagnostics and repair hints, and timeline notification status.",
         inputSchema: z
           .object({ title: titleSchema, content: contentSchema })
           .strict(),
       },
       ({ title, content }) =>
-        result(() => store.create(sessions.resolve(token), title, content)),
+        result(async () => {
+          const actor = sessions.resolve(token);
+          return saved(
+            actor,
+            "created",
+            await store.create(actor, title, content),
+          );
+        }),
     );
     server.registerTool(
       "canvas.update",
       {
         description:
-          "Save title and/or GFM content with a valid edit lock and expectedRevision.",
+          "Save title and/or GFM content with a valid edit lock and expectedRevision. Returns saved revision, Mermaid diagnostics and repair hints, and timeline notification status.",
         inputSchema: editInputSchema
           .extend({
             title: titleSchema.optional(),
@@ -139,7 +214,11 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
             "Provide title or content",
           ),
       },
-      (input) => result(() => store.update(sessions.resolve(token), input)),
+      (input) =>
+        result(async () => {
+          const actor = sessions.resolve(token);
+          return saved(actor, "updated", await store.update(actor, input));
+        }),
     );
     server.registerTool(
       "canvas.delete",
@@ -204,7 +283,9 @@ export async function startMcp(store: CanvasStore, sessions: Sessions) {
   return {
     url: `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`,
     async close() {
+      closing = true;
       await Promise.allSettled([...active].map((server) => server.close()));
+      await Promise.allSettled([...pending]);
       http.closeAllConnections();
       await new Promise<void>((resolve, reject) =>
         http.close((error) => (error ? reject(error) : resolve())),

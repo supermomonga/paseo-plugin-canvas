@@ -3,7 +3,21 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, expect, test, vi } from "vitest";
 vi.mock("../client/updates", () => ({ useCanvasUpdates: () => null }));
 const nativePlatform = vi.hoisted(() => ({ OS: "web" }));
+const lifecycle = vi.hoisted(() => ({
+  listener: undefined as ((state: string) => void) | undefined,
+  remove: vi.fn(),
+}));
+vi.mock("@getpaseo/plugin/client", () => ({
+  useRpc: () => async () => undefined,
+}));
 vi.mock("react-native", () => ({
+  AppState: {
+    currentState: "active",
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      lifecycle.listener = listener;
+      return { remove: lifecycle.remove };
+    },
+  },
   View: "View",
   Modal: "NativeModal",
   SafeAreaView: "SafeAreaView",
@@ -34,6 +48,8 @@ const host = vi.hoisted(() => ({
 }));
 vi.mock("@getpaseo/plugin/client/react-native", () => ({
   ScrollView: "ScrollView",
+  FlatList: "FlatList",
+  TextInput: "TextInput",
   Icon: () => null,
   Modal: Object.assign(
     ({ open, children }: { open: boolean; children: React.ReactNode }) =>
@@ -44,6 +60,7 @@ vi.mock("@getpaseo/plugin/client/react-native", () => ({
   useToast: () => ({ show: host.show, error: host.error }),
 }));
 const queries = vi.hoisted(() => ({
+  inputs: vi.fn(),
   list: {
     data: { items: [] as unknown[] } as { items: unknown[] } | undefined,
     error: null as Error | null,
@@ -66,12 +83,14 @@ const mediaResult = vi.hoisted(() => ({
 }));
 vi.mock("paseo-plugin-helper/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("paseo-plugin-helper/client")>()),
-  useRpcQuery: (contract: { name: string }) =>
-    contract.name === "canvas.list"
+  useRpcQuery: (contract: { name: string }, input: unknown) => {
+    queries.inputs(contract.name, input);
+    return contract.name === "canvas.list"
       ? queries.list
       : contract.name === "canvas.get"
         ? queries.detail
-        : mediaResult,
+        : mediaResult;
+  },
 }));
 import {
   initClientHelpers,
@@ -90,6 +109,9 @@ initClientHelpers({
 import { parseDocument } from "../server/document";
 import { Markdown, safeLink } from "../client/markdown";
 import { CanvasPanel } from "../client/panel";
+import contribute from "../index.client";
+import { startActivitySync } from "../client/activity";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 const colors = {
   surface0: "#111111",
@@ -951,3 +973,156 @@ test.each(["ios", "android"] as const)(
     await act(async () => tree.unmount());
   },
 );
+
+test.each([false, true])(
+  "timeline action selects an unmounted or mounted panel in its workspace (compact=%s)",
+  async (compact) => {
+    const renderers: any[] = [],
+      panels: any[] = [];
+    const removeRenderer = vi.fn(),
+      removePanel = vi.fn(),
+      removeCommand = vi.fn();
+    const client = {
+      rpc: vi.fn(() => new Promise(() => {})),
+      openPanel: vi.fn(),
+      addTimelineRenderer: (entry: any) => {
+        renderers.push(entry);
+        return removeRenderer;
+      },
+      addWorkspacePanel: (entry: any) => {
+        panels.push(entry);
+        return removePanel;
+      },
+      addCommandCenterItem: () => removeCommand,
+    };
+    const cleanup = contribute(client as unknown as PluginClientContext);
+    const Row = renderers[0].Component,
+      Panel = panels[0].Component;
+    const common = {
+      host: { id: "host", label: "Host" },
+      theme,
+      layout: { compact, platform: "web" },
+    };
+    const row = (workspaceId: string, canvasId: string) => (
+      <Row
+        {...common}
+        agentId="agent-a"
+        timestamp={new Date()}
+        item={{
+          type: "plugin",
+          kind: "canvas-activity",
+          version: 1,
+          data: {
+            workspaceId,
+            canvasId,
+            title: "Implementation plan",
+            revision: 2,
+            action: "updated",
+            warningCount: 2,
+            savedAt: "2026-09-12T00:00:00Z",
+          },
+        }}
+      />
+    );
+    let timeline!: ReactTestRenderer, view!: ReactTestRenderer;
+    try {
+      await act(async () => {
+        timeline = create(row("workspace-a", "canvas-b"));
+      });
+      expect(JSON.stringify(timeline.toJSON())).toContain(
+        "Mermaid rendering warnings: ",
+      );
+      await act(async () => button(timeline, "Open canvas").props.onPress());
+      expect(client.openPanel).toHaveBeenLastCalledWith("canvas", {
+        workspaceId: "workspace-a",
+      });
+      await act(async () => {
+        view = create(
+          <Panel {...common} context="workspace" workspaceId="workspace-a" />,
+        );
+      });
+      expect(queries.inputs).toHaveBeenCalledWith("canvas.get", {
+        workspaceId: "workspace-a",
+        canvasId: "canvas-b",
+      });
+      expect(view.root.findAllByType(Tabs)).toHaveLength(1);
+      await act(async () => timeline.update(row("workspace-a", "canvas-a")));
+      queries.inputs.mockClear();
+      await act(async () => button(timeline, "Open canvas").props.onPress());
+      expect(queries.inputs).toHaveBeenCalledWith("canvas.get", {
+        workspaceId: "workspace-a",
+        canvasId: "canvas-a",
+      });
+      await act(async () => timeline.update(row("workspace-b", "canvas-b")));
+      queries.inputs.mockClear();
+      await act(async () => button(timeline, "Open canvas").props.onPress());
+      expect(queries.inputs).not.toHaveBeenCalled();
+      expect(client.openPanel).toHaveBeenLastCalledWith("canvas", {
+        workspaceId: "workspace-b",
+      });
+      await act(async () => timeline.update(row("workspace-a", "deleted")));
+      await act(async () => button(timeline, "Open canvas").props.onPress());
+      expect(JSON.stringify(view.toJSON())).toContain(
+        "This canvas has been deleted",
+      );
+      if (compact) {
+        await act(async () => button(view, "Back to canvases").props.onPress());
+        expect(view.root.findAllByType(Tabs)).toHaveLength(0);
+      }
+    } finally {
+      await act(async () => {
+        timeline?.unmount();
+        view?.unmount();
+        cleanup();
+      });
+    }
+    expect(removeRenderer).toHaveBeenCalledOnce();
+    expect(removePanel).toHaveBeenCalledOnce();
+    expect(removeCommand).toHaveBeenCalledOnce();
+  },
+);
+
+test("activity delivery runs without a panel, pauses in background, retries, and stops on unload", async () => {
+  vi.useFakeTimers();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  let resolve!: (result: { cursor: string }) => void;
+  const rpc = vi.fn(
+    () =>
+      new Promise<{ cursor: string }>((next) => {
+        resolve = next;
+      }),
+  );
+  const stop = startActivitySync({ rpc } as unknown as PluginClientContext);
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    lifecycle.listener!("background");
+    resolve({ cursor: "first" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    lifecycle.listener!("active");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc.mock.calls[1]).toEqual([
+      expect.objectContaining({ name: "canvas.sync_activity" }),
+      { cursor: "first" },
+    ]);
+    rpc.mockRejectedValueOnce(new Error("offline"));
+    resolve({ cursor: "second" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(rpc).toHaveBeenCalledTimes(4);
+    stop();
+    resolve({ cursor: "third" });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(rpc).toHaveBeenCalledTimes(4);
+    expect(lifecycle.remove).toHaveBeenCalledOnce();
+  } finally {
+    stop();
+    vi.useRealTimers();
+    warn.mockRestore();
+  }
+});

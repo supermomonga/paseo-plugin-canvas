@@ -169,6 +169,45 @@ try {
     config: agent.config.mcpServers["paseo-canvas"],
   });
   process.on("message", async (message) => {
+    if (message === "sync-activity") {
+      // Model the public RPC context. The session stamps pluginId; the real
+      // stock AgentManager below owns timeline storage. It does not deduplicate.
+      await handlers.get("canvas.sync_activity")(
+        { cursor: null },
+        {
+          paseo: {
+            agents: {
+              ref: (agentId) => ({
+                timeline: {
+                  append: (item) =>
+                    manager.appendTimelineItem(agentId, {
+                      ...item,
+                      pluginId: "paseo-canvas",
+                    }),
+                  refetch: async (options) => {
+                    const page = manager.fetchTimeline(agentId, options);
+                    return {
+                      ...page,
+                      entries: page.rows.map((row) => ({ item: row.item })),
+                      startCursor: page.rows.length
+                        ? { epoch: page.epoch, seq: page.rows[0].seq }
+                        : null,
+                    };
+                  },
+                },
+              }),
+            },
+          },
+        },
+      );
+      await manager.flush();
+      process.send({
+        type: "activity",
+        items: manager
+          .getTimeline(agent.id)
+          .filter((item) => item.type === "plugin"),
+      });
+    }
     if (message?.type === "watch") {
       const result = await handlers.get("canvas.wait_for_change")({
         workspaceId: "bundle-workspace",

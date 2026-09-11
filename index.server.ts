@@ -9,6 +9,8 @@ import { CanvasStore } from "./server/store";
 import { storageDirectory } from "./server/paths";
 import { Sessions } from "./server/sessions";
 import { startMcp } from "./server/mcp";
+import { CanvasActivityQueue } from "./server/activity";
+import { syncCanvasActivity } from "./shared/activity";
 
 import { parseDocument } from "./server/document";
 import { renderGraphic, readImage } from "./shared/media";
@@ -29,13 +31,16 @@ export default function contribute(server: PluginServerContext) {
   const ready = storageDirectory().then(async (directory) => {
     const store = await CanvasStore.open(directory, { waitForOwner: true });
     let sessions: Sessions | undefined;
+    let activity: CanvasActivityQueue | undefined;
     try {
       sessions = await Sessions.open(store);
-      const mcp = await startMcp(store, sessions);
+      activity = await CanvasActivityQueue.open(directory);
+      const mcp = await startMcp(store, sessions, activity);
       logger.info("Canvas storage and MCP are ready");
-      return { store, mcp, sessions };
+      return { store, mcp, sessions, activity };
     } catch (error) {
       await sessions?.close();
+      await activity?.close();
       await store.close();
       throw error;
     }
@@ -46,6 +51,9 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(listCanvases, async ({ workspaceId }) =>
     (await ready).store.list(workspaceId),
+  );
+  server.handle(syncCanvasActivity, async ({ cursor }, context) =>
+    (await ready).activity.sync(cursor, context),
   );
   server.handle(waitForCanvasChange, async ({ workspaceId, cursor }) =>
     (await ready).store.waitForChange(workspaceId, cursor),
@@ -102,6 +110,7 @@ export default function contribute(server: PluginServerContext) {
     const runtime = await ready.catch(() => null);
     if (runtime) {
       await runtime.mcp.close();
+      await runtime.activity.close();
       await runtime.sessions.close();
       await runtime.store.close();
     }
