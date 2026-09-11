@@ -3,6 +3,12 @@
 import React, { useEffect, useState } from "react";
 import {
   Eye,
+  PanelLeft,
+  PanelRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   ZoomIn,
   ZoomOut,
   Scan,
@@ -41,6 +47,12 @@ import type { PluginIconProps } from "@getpaseo/plugin/client";
 export { ScrollView };
 const icons = {
   Eye,
+  PanelLeft,
+  PanelRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   ZoomIn,
   ZoomOut,
   Scan,

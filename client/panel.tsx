@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, type ReactNode } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import {
   Icon,
@@ -81,6 +81,8 @@ function WorkspaceCanvas({
   const colors = theme.colors;
   const updateError = useCanvasUpdates(workspaceId);
   const [selected, setSelected] = useState<string | null>(null);
+  const [listOpen, setListOpen] = useState(true);
+  const [listSide, setListSide] = useState<"left" | "right">("left");
   const list = useRpcQuery(listCanvases, { workspaceId }, { retry: true });
   const listError = list.error ?? list.failureReason;
   const canvasId =
@@ -89,8 +91,38 @@ function WorkspaceCanvas({
     selected !== null &&
     !!list.data &&
     !list.data.items.some((item) => item.canvasId === selected);
-  const showList = !singlePane || selected === null;
+  const showList = singlePane ? selected === null : listOpen;
   const showDetail = !singlePane || selected !== null;
+  const navigation = singlePane ? (
+    <ToolbarButton
+      icon="ArrowLeft"
+      accessibilityLabel="Back to canvases"
+      onPress={() => setSelected(null)}
+    />
+  ) : (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <ToolbarButton
+        icon={
+          listSide === "left"
+            ? listOpen
+              ? "PanelLeftClose"
+              : "PanelLeftOpen"
+            : listOpen
+              ? "PanelRightClose"
+              : "PanelRightOpen"
+        }
+        accessibilityLabel={listOpen ? "Hide canvas list" : "Show canvas list"}
+        onPress={() => setListOpen((open) => !open)}
+      />
+      <ToolbarButton
+        icon={listSide === "left" ? "PanelRight" : "PanelLeft"}
+        accessibilityLabel={`Move canvas list to ${listSide === "left" ? "right" : "left"}`}
+        onPress={() =>
+          setListSide((side) => (side === "left" ? "right" : "left"))
+        }
+      />
+    </View>
+  );
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
       {updateError && (
@@ -105,7 +137,7 @@ function WorkspaceCanvas({
         style={{
           flex: 1,
           minHeight: 0,
-          flexDirection: "row",
+          flexDirection: listSide === "left" ? "row" : "row-reverse",
           backgroundColor: colors.surface0,
         }}
       >
@@ -116,7 +148,8 @@ function WorkspaceCanvas({
                 ? { flex: 1 }
                 : {
                     width: sidebarWidth,
-                    borderRightWidth: 1,
+                    borderRightWidth: listSide === "left" ? 1 : 0,
+                    borderLeftWidth: listSide === "right" ? 1 : 0,
                     borderColor: colors.border,
                   }
             }
@@ -199,11 +232,24 @@ function WorkspaceCanvas({
                 missing={selectionMissing}
                 theme={theme}
                 platform={layout.platform}
-                singlePane={singlePane}
-                onBack={() => setSelected(null)}
+                navigation={navigation}
               />
             ) : (
-              <CenteredText theme={theme}>Select a canvas</CenteredText>
+              <>
+                <View
+                  style={{
+                    height: HEADER_HEIGHT,
+                    paddingHorizontal: 16,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    borderBottomWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  {navigation}
+                </View>
+                <CenteredText theme={theme}>Select a canvas</CenteredText>
+              </>
             )}
           </View>
         )}
@@ -288,16 +334,14 @@ function CanvasDetail({
   missing,
   theme,
   platform,
-  singlePane,
-  onBack,
+  navigation,
 }: {
   workspaceId: string;
   canvasId: string;
   missing: boolean;
   theme: PluginTheme;
   platform: PluginWorkspacePanelProps["layout"]["platform"];
-  singlePane: boolean;
-  onBack: () => void;
+  navigation: ReactNode;
 }) {
   const colors = theme.colors;
   const toast = useToast();
@@ -324,13 +368,7 @@ function CanvasDetail({
           borderColor: colors.border,
         }}
       >
-        {singlePane && (
-          <ToolbarButton
-            icon="ArrowLeft"
-            accessibilityLabel="Back to canvases"
-            onPress={onBack}
-          />
-        )}
+        {navigation}
         <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
           <Text
             accessibilityRole="header"

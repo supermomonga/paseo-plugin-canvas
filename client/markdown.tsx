@@ -7,6 +7,7 @@ import type { Root, Element, ElementContent, RootContent } from "hast";
 import { textContent, externalLink, type AlertType } from "../shared/document";
 import { DocumentImage, Graphic } from "./media";
 import { Mermaid } from "./mermaid/viewer";
+import { tableColumnWidths } from "../shared/table";
 
 export const safeLink = externalLink;
 const mono = Platform.OS === "ios" ? "Menlo" : "monospace";
@@ -151,12 +152,16 @@ export function Markdown({
       />
     );
   }
-  function inline(nodes: RootContent[], prefix: string): ReactNode[] {
+  function inline(
+    nodes: RootContent[],
+    prefix: string,
+    measuring = false,
+  ): ReactNode[] {
     return nodes.map((node, index) => {
       const key = `${prefix}.${index}`;
       if (node.type === "text") return node.value.replace(/\r?\n/g, " ");
       if (!element(node)) return null;
-      const children = () => inline(node.children, key);
+      const children = () => inline(node.children, key, measuring);
       switch (node.tagName) {
         case "br":
           return "\n";
@@ -215,14 +220,14 @@ export function Markdown({
           return (
             <Text
               key={key}
-              {...anchorProps(node)}
+              {...(measuring ? {} : anchorProps(node))}
               accessibilityRole={enabled ? "link" : undefined}
               accessibilityLabel={
                 typeof node.properties.ariaLabel === "string"
                   ? node.properties.ariaLabel
                   : undefined
               }
-              onPress={enabled ? () => openLink(href) : undefined}
+              onPress={!measuring && enabled ? () => openLink(href) : undefined}
               style={{
                 color: enabled ? colors.foreground : colors.foregroundMuted,
                 textDecorationLine: enabled ? "underline" : "none",
@@ -484,45 +489,15 @@ export function Markdown({
             );
         }
         return (
-          <ScrollView key={key} horizontal>
-            <View
-              role="table"
-              style={{ borderWidth: 1, borderColor: colors.border }}
-            >
-              {rows.map((row, r) => (
-                <View
-                  key={r}
-                  role="row"
-                  style={{
-                    flexDirection: "row",
-                    backgroundColor:
-                      r === 0 ? colors.surface1 : colors.surface0,
-                  }}
-                >
-                  {row.children.filter(element).map((cell, c) => (
-                    <Text
-                      key={c}
-                      role={cell.tagName === "th" ? "columnheader" : "cell"}
-                      selectable
-                      style={{
-                        ...textStyle,
-                        width: 180,
-                        padding: 8,
-                        textAlign:
-                          (cell.properties.align as
-                            "left" | "right" | "center") ?? "left",
-                        borderWidth: 0.5,
-                        borderColor: colors.border,
-                        fontWeight: cell.tagName === "th" ? "700" : "400",
-                      }}
-                    >
-                      {inline(cell.children, `${key}.${r}.${c}`)}
-                    </Text>
-                  ))}
-                </View>
-              ))}
-            </View>
-          </ScrollView>
+          <MarkdownTable
+            key={key}
+            rows={rows}
+            theme={theme}
+            textStyle={textStyle}
+            renderCell={(cell, row, column, measuring) =>
+              inline(cell.children, `${key}.${row}.${column}`, measuring)
+            }
+          />
         );
       }
       case "details": {
@@ -579,6 +554,142 @@ export function Markdown({
       style={{ gap: 16 }}
     >
       {flow(tree.children, "doc")}
+    </View>
+  );
+}
+
+function MarkdownTable({
+  rows,
+  theme,
+  textStyle,
+  renderCell,
+}: {
+  rows: Element[];
+  theme: PluginTheme;
+  textStyle: TextStyle;
+  renderCell: (
+    cell: Element,
+    row: number,
+    column: number,
+    measuring?: boolean,
+  ) => ReactNode;
+}) {
+  const [width, setWidth] = useState(0);
+  const [measured, setMeasured] = useState(new Map<string, number>());
+  const cells = rows.map((row) => row.children.filter(element));
+  const columns = Math.max(1, ...cells.map((row) => row.length));
+  const preferred = Array.from({ length: columns }, (_, c) =>
+    Math.max(
+      0,
+      ...cells.map((row, r) => (row[c] ? (measured.get(`${r}.${c}`) ?? 0) : 0)),
+    ),
+  );
+  const widths = tableColumnWidths(preferred, Math.max(0, width - 2));
+  const colors = theme.colors;
+  function cellStyle(cell: Element): TextStyle {
+    return {
+      ...textStyle,
+      padding: 8,
+      borderWidth: 0.5,
+      borderColor: colors.border,
+      fontWeight: cell.tagName === "th" ? "700" : "400",
+    };
+  }
+  return (
+    <View>
+      {/* A horizontal scroll content has unbounded width on web and native.
+          Measure the same styled inline content without wrapping. Keep this
+          sizing pass out of visual layout, accessibility, and interaction. */}
+      <View
+        aria-hidden
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          height: 0,
+          opacity: 0,
+          overflow: "hidden",
+        }}
+      >
+        <ScrollView
+          horizontal
+          scrollEnabled={false}
+          removeClippedSubviews={false}
+        >
+          <View style={{ alignItems: "flex-start" }}>
+            {cells.map((row, r) =>
+              row.map((cell, c) => (
+                <Text
+                  key={`${r}.${c}`}
+                  style={{ ...cellStyle(cell), flexShrink: 0 }}
+                  onLayout={(event) => {
+                    const naturalWidth = Math.ceil(
+                      event.nativeEvent.layout.width,
+                    );
+                    setMeasured((previous) => {
+                      const id = `${r}.${c}`;
+                      if (previous.get(id) === naturalWidth) return previous;
+                      // Match React's positional cell keys: replacing content of
+                      // the same rendered width need not emit another onLayout.
+                      const next = new Map(previous);
+                      next.set(id, naturalWidth);
+                      return next;
+                    });
+                  }}
+                >
+                  {renderCell(cell, r, c, true)}
+                </Text>
+              )),
+            )}
+          </View>
+        </ScrollView>
+      </View>
+      <ScrollView
+        horizontal
+        style={{ flexGrow: 0 }}
+        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      >
+        <View
+          role="table"
+          style={{
+            width: widths.reduce((sum, column) => sum + column, 0) + 2,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          {cells.map((row, r) => (
+            <View
+              key={r}
+              role="row"
+              style={{
+                flexDirection: "row",
+                backgroundColor: r === 0 ? colors.surface1 : colors.surface0,
+              }}
+            >
+              {row.map((cell, c) => (
+                <Text
+                  key={c}
+                  role={cell.tagName === "th" ? "columnheader" : "cell"}
+                  selectable
+                  style={{
+                    ...cellStyle(cell),
+                    width: widths[c],
+                    flexShrink: 0,
+                    textAlign:
+                      (cell.properties.align as "left" | "right" | "center") ??
+                      "left",
+                  }}
+                >
+                  {renderCell(cell, r, c)}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
 }

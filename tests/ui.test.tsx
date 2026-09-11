@@ -253,6 +253,142 @@ test("narrow desktop pane switches to list/detail navigation when the split cann
   await act(async () => view.unmount());
 });
 
+test("list visibility and placement preserve the selected document and code mode across layout changes", async () => {
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(panel(false));
+  });
+  await openCanvas(view);
+  await act(async () => view.root.findByType(Tabs).props.onTabChange("source"));
+  const tabs = view.root.findByType(Tabs);
+  const layout = (width: number) =>
+    view.root
+      .findAllByType("View" as never)
+      .find((item) => item.props.onLayout)!
+      .props.onLayout({ nativeEvent: { layout: { width } } });
+  const listVisible = () =>
+    view.root.findAllByProps({ accessibilityLabel: "Open メモ" }).length > 0;
+  const split = () =>
+    view.root
+      .findAllByType("View" as never)
+      .find(
+        (item) =>
+          item.props.style?.backgroundColor === colors.surface0 &&
+          item.props.style?.flexDirection,
+      )!;
+
+  await act(async () =>
+    button(view, "Move canvas list to right").props.onPress(),
+  );
+  expect(split().props.style.flexDirection).toBe("row-reverse");
+  expect(view.root.findByType(Tabs)).toBe(tabs);
+  expect(tabs.props.activeTab).toBe("source");
+  await act(async () => button(view, "Hide canvas list").props.onPress());
+  expect(listVisible()).toBe(false);
+  expect(view.root.findByType(Tabs)).toBe(tabs);
+  await act(async () => layout(600));
+  expect(button(view, "Move canvas list to left")).toBeUndefined();
+  expect(button(view, "Back to canvases")).toBeDefined();
+  expect(view.root.findByType(Tabs)).toBe(tabs);
+  await act(async () => layout(1000));
+  expect(listVisible()).toBe(false);
+  expect(button(view, "Move canvas list to left")).toBeDefined();
+  await act(async () => button(view, "Show canvas list").props.onPress());
+  expect(listVisible()).toBe(true);
+  expect(split().props.style.flexDirection).toBe("row-reverse");
+  await act(async () =>
+    button(view, "Move canvas list to left").props.onPress(),
+  );
+  expect(split().props.style.flexDirection).toBe("row");
+  expect(view.root.findByType(Tabs)).toBe(tabs);
+  expect(tabs.props.activeTab).toBe("source");
+  await act(async () => view.unmount());
+});
+
+test("an empty workspace keeps list controls reachable while collapsed", async () => {
+  queries.list.data = { items: [] };
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(panel(false));
+  });
+  await act(async () => button(view, "Hide canvas list").props.onPress());
+  await act(async () =>
+    button(view, "Move canvas list to right").props.onPress(),
+  );
+  await act(async () => button(view, "Show canvas list").props.onPress());
+  expect(JSON.stringify(view.toJSON())).toContain("No canvases yet");
+  await act(async () => view.unmount());
+});
+
+test("tables use measured content widths, preserve column alignment, and scroll only below readable widths", async () => {
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(
+      <PluginThemeProvider theme={theme}>
+        <Markdown
+          theme={theme}
+          onError={() => {}}
+          document={parseDocument(
+            "| Character | Relationship |\n| :--- | ---: |\n| 鹿目まどか | 全ての中心。ほむらに執着され、さやかの親友、マミの後輩 |\n\n> | A | B | C |\n> | --- | --- | --- |\n> | 1 | 2 | 3 |",
+          )}
+        />
+      </PluginThemeProvider>,
+    );
+  });
+  const scrolls = view.root
+    .findAllByType("ScrollView" as never)
+    .filter((item) => item.props.horizontal && item.props.onLayout);
+  const tables = () => view.root.findAllByProps({ role: "table" });
+  const resize = (index: number, width: number) =>
+    scrolls[index].props.onLayout({ nativeEvent: { layout: { width } } });
+  const measurements = view.root
+    .findAllByProps({ importantForAccessibility: "no-hide-descendants" })
+    .flatMap((item) => item.findAllByType("Text" as never))
+    .filter((item) => item.props.onLayout);
+  await act(async () => {
+    [120, 160, 80, 1000, 50, 60, 70, 600, 500, 400].forEach((width, index) =>
+      measurements[index].props.onLayout({
+        nativeEvent: { layout: { width } },
+      }),
+    );
+    resize(0, 820);
+    resize(1, 780);
+  });
+  expect(tables().map((item) => item.props.style.width)).toEqual([820, 780]);
+  const firstCells = () =>
+    tables()[0]
+      .findAllByType("Text" as never)
+      .filter((item) => item.props.role);
+  expect(firstCells().map((item) => item.props.style.width)).toEqual([
+    120, 698, 120, 698,
+  ]);
+  expect(firstCells().map((item) => item.props.style.textAlign)).toEqual([
+    "left",
+    "right",
+    "left",
+    "right",
+  ]);
+  await act(async () => {
+    resize(0, 358);
+    resize(1, 318);
+  });
+  expect(tables().map((item) => item.props.style.width)).toEqual([358, 542]);
+  expect(firstCells().map((item) => item.props.style.width)).toEqual([
+    120, 236, 120, 236,
+  ]);
+  await act(async () => resize(0, 260));
+  expect(tables()[0].props.style.width).toBe(302);
+  await act(async () => resize(0, 700));
+  expect(tables()[0].props.style.width).toBe(700);
+  // Shortening a long cell reallocates space; it must not keep a historical maximum.
+  await act(async () =>
+    measurements[3].props.onLayout({ nativeEvent: { layout: { width: 160 } } }),
+  );
+  expect(firstCells()[1].props.style.width).toBeLessThan(578);
+  expect(tables()[0].props.style.width).toBe(700);
+  await act(async () => view.unmount());
+});
+
 test("copy success and failure use the host toast instead of inserting content into the panel", async () => {
   let view!: ReactTestRenderer;
   await act(async () => {
@@ -632,8 +768,9 @@ test.each(["web", "ios", "android"] as const)(
   "Mermaid popup on %s fills measured space, switches to complete source and closes",
   async (platform) => {
     nativePlatform.OS = platform;
-    const { Mermaid, DiagramViewport } =
-      await import("../client/mermaid/viewer");
+    const { Mermaid, DiagramViewport } = await import(
+      "../client/mermaid/viewer"
+    );
     const source = "sequenceDiagram\nA->>B: 共有";
     let tree!: ReactTestRenderer;
     await act(async () => {
