@@ -13,7 +13,8 @@
     "build": "node scripts/build-renderer.mjs",
     "setup": "node scripts/build-renderer.mjs",
     "visual:serve": "node --import tsx tests/visual/serve.ts",
-    "pretypecheck": "npm run build"
+    "pretypecheck": "npm run build",
+    "test:native": "node tests/native-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

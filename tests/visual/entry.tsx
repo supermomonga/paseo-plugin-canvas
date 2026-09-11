@@ -35,7 +35,8 @@ initClientHelpers({
 });
 const queryClient = new QueryClient();
 import { CanvasPanel } from "../../client/panel";
-import { CanvasActivityRow, CanvasSelection } from "../../client/activity";
+import { CanvasActivityRow } from "../../client/activity";
+import { createCanvasSelection } from "../../client/selection";
 const light = {
   surface0: "#ffffff",
   surface1: "#fafafa",
@@ -65,7 +66,7 @@ const dark = {
 function Preview() {
   const [darkMode, setDarkMode] = useState(true);
   const [timeline, setTimeline] = useState(false);
-  const [selection] = useState(() => new CanvasSelection());
+  const [selection] = useState(createCanvasSelection);
   const { width } = useWindowDimensions();
   useEffect(() => {
     document.documentElement.style.colorScheme = darkMode ? "dark" : "light";

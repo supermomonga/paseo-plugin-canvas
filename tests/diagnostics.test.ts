@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { diagnoseMarkdown } from "../server/diagnostics";
-import { diagramModel } from "../shared/mermaid/model";
+import { diagramModel, isMermaidDiagnosticError } from "../shared/mermaid/model";
 
 test("reports precise document lines in multiple Mermaid fences, including nested CRLF content", () => {
   const source = [
@@ -81,4 +81,30 @@ test("uses the preview's Markdown grammar inside details, math, and code fences"
   expect(
     diagnoseMarkdown("````markdown\n```mermaid\npie\n```\n````").diagnostics,
   ).toEqual([]);
+});
+
+test("only parser diagnostic errors are classified as unsupported Mermaid", () => {
+  expect(isMermaidDiagnosticError(new TypeError("parser bug"))).toBe(false);
+  expect(
+    isMermaidDiagnosticError(
+      Object.assign(new Error("unrelated"), {
+        name: "MermaidDiagnosticError",
+        hint: "",
+        sourceLines: [],
+      }),
+    ),
+  ).toBe(false);
+  let error: unknown;
+  try {
+    diagramModel("sequenceDiagram\nA->>B: hello\nloop retry\nend");
+  } catch (caught) {
+    error = caught;
+  }
+  expect(isMermaidDiagnosticError(error)).toBe(true);
+  expect(error).toBeInstanceOf(Error);
+  expect(error).toMatchObject({
+    name: "MermaidDiagnosticError",
+    sourceLines: ["loop retry", "end"],
+    hint: expect.stringContaining("explicit steps"),
+  });
 });

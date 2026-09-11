@@ -10,11 +10,8 @@ import {
 } from "@getpaseo/plugin/client/react-native";
 import { initClientHelpers } from "paseo-plugin-helper/client";
 import { CanvasPanel } from "./client/panel";
-import {
-  CanvasActivityRow,
-  CanvasSelection,
-  startActivitySync,
-} from "./client/activity";
+import { CanvasActivityRow, startActivitySync } from "./client/activity";
+import { createCanvasSelection } from "./client/selection";
 import { canvasActivitySchema } from "./shared/activity";
 export default function contribute(client: PluginClientContext) {
   initClientHelpers({
@@ -27,7 +24,7 @@ export default function contribute(client: PluginClientContext) {
     TextInput,
     copyText,
   });
-  const selection = new CanvasSelection();
+  const selection = createCanvasSelection();
   const stopActivitySync = startActivitySync(client);
   const removeActivity = client.addTimelineRenderer({
     kind: "canvas-activity",

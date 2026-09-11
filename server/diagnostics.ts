@@ -1,5 +1,5 @@
 import { visit } from "unist-util-visit";
-import { diagramModel, MermaidDiagnosticError } from "../shared/mermaid/model";
+import { diagramModel, isMermaidDiagnosticError } from "../shared/mermaid/model";
 import { markdownParser } from "./document";
 
 export function diagnoseMarkdown(content: string) {
@@ -21,7 +21,7 @@ export function diagnoseMarkdown(content: string) {
     try {
       diagramModel(node.value.trim());
     } catch (error) {
-      if (!(error instanceof MermaidDiagnosticError)) throw error;
+      if (!isMermaidDiagnosticError(error)) throw error;
       const lines = node.value.split(/\r?\n/);
       const skipped = new Set(error.sourceLines);
       const badLines = lines.flatMap((source, index) =>

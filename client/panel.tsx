@@ -25,7 +25,7 @@ import {
   type EditState,
 } from "../shared/contracts";
 import { useCanvasUpdates } from "./updates";
-import { CanvasSelection } from "./activity";
+import { createCanvasSelection, type CanvasSelection } from "./selection";
 import { Markdown } from "./markdown";
 import { HEADER_HEIGHT, ToolbarButton, titleText, metaText } from "./controls";
 
@@ -50,7 +50,7 @@ function lockLabel(state: EditState) {
 export function CanvasPanel(
   props: PluginWorkspacePanelProps & { selection?: CanvasSelection },
 ) {
-  const [localSelection] = useState(() => new CanvasSelection());
+  const [localSelection] = useState(createCanvasSelection);
   const [width, setWidth] = useState<number | null>(null);
   // A split workspace pane can be narrower than the host's form factor. Keep
   // the canonical 320 + 400 list/detail topology only where it actually fits.

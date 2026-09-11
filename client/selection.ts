@@ -1,0 +1,25 @@
+// Paseo evaluates plugin bundles from source in Hermes. Keep this store a
+// factory: classes in that eval path fail when their constructors are called.
+export function createCanvasSelection() {
+  const selected = new Map<string, string | null>();
+  const subscriptions = new Map<string, Set<() => void>>();
+  return {
+    get(workspaceId: string) {
+      return selected.get(workspaceId) ?? null;
+    },
+    select(workspaceId: string, canvasId: string | null) {
+      selected.set(workspaceId, canvasId);
+      for (const listener of subscriptions.get(workspaceId) ?? []) listener();
+    },
+    subscribe(workspaceId: string, listener: () => void) {
+      const listeners = subscriptions.get(workspaceId) ?? new Set();
+      listeners.add(listener);
+      subscriptions.set(workspaceId, listeners);
+      return () => {
+        listeners.delete(listener);
+        if (!listeners.size) subscriptions.delete(workspaceId);
+      };
+    },
+  };
+}
+export type CanvasSelection = ReturnType<typeof createCanvasSelection>;

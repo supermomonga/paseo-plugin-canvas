@@ -8,28 +8,6 @@ import { useToast } from "@getpaseo/plugin/client/react-native";
 import { syncCanvasActivity, type CanvasActivity } from "../shared/activity";
 import { ToolbarButton, titleText, metaText } from "./controls";
 
-// One instance per plugin installation, so hosts never share selection state.
-export class CanvasSelection {
-  private selected = new Map<string, string | null>();
-  private listeners = new Map<string, Set<() => void>>();
-  get(workspaceId: string) {
-    return this.selected.get(workspaceId) ?? null;
-  }
-  select(workspaceId: string, canvasId: string | null) {
-    this.selected.set(workspaceId, canvasId);
-    for (const listener of this.listeners.get(workspaceId) ?? []) listener();
-  }
-  subscribe(workspaceId: string, listener: () => void) {
-    const listeners = this.listeners.get(workspaceId) ?? new Set();
-    listeners.add(listener);
-    this.listeners.set(workspaceId, listeners);
-    return () => {
-      listeners.delete(listener);
-      if (!listeners.size) this.listeners.delete(workspaceId);
-    };
-  }
-}
-
 export function CanvasActivityRow({
   item,
   theme,

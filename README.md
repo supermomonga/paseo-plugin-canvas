@@ -187,6 +187,14 @@ npm run visual:serve   # Serve it at http://127.0.0.1:49618
 
 The visual fixture replaces host RPC, modal, toast, and clipboard integration. It is not a running Paseo installation.
 
+For native JavaScript execution, use the Hermes executable distributed with React Native **0.81.5** (the version used by Paseo 0.8.0):
+
+```sh
+npm run test:native -- /absolute/path/to/hermes
+```
+
+This check compiles the production client with Paseo's release compiler and evaluates it in Hermes. It covers startup, registration, selection, Mermaid layouts and diagnostics, and cleanup. Host UI/RPC/schema services are stubbed; it does not verify native rendering. The runtime is a development-only prerequisite, not a plugin dependency. Keep client/shared code compatible with Hermes source evaluation: Paseo's compiler leaves classes in the bundle, and constructing them through this path fails.
+
 ### Validation status
 
 Checks performed on macOS with Node.js 22 include:
@@ -194,6 +202,7 @@ Checks performed on macOS with Node.js 22 include:
 - Automated storage, corruption, locking, workspace isolation, HTTP MCP, rendering, and automatic-update tests.
 - Unmodified Paseo 0.8.0 compilation, hook validation, `AgentManager`, and a custom provider fixture exercising stored-agent resume after normal exit and forced process termination.
 - The production bundle with real Codex 0.154.0: eight-tool discovery in two agents, HTTP sharing/lock conflicts, plugin-restart recovery, and no Canvas registration in a separate launch using the same isolated home. No LLM prompt was sent.
+- Hermes from React Native 0.81.5 executing the release-compiled client and shared-code probes with stubbed host services.
 - Desktop/390px browser layouts and light/dark themes. Mocked native checks do not establish real-device behavior.
 
 > [!NOTE]
