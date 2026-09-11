@@ -10,6 +10,8 @@ links:
   kind: relatesto
 - target: 7
   kind: relatesto
+- target: 9
+  kind: amendedby
 ---
 
 # Persist workspace-shared GFM canvases with exclusive edit leases

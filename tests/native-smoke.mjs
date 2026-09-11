@@ -66,28 +66,40 @@ var modules = {
   "@getpaseo/plugin": {defineRpc: function(value){return value;}},
   "@getpaseo/plugin/client": {},
   "@getpaseo/plugin/client/react-native": {},
+  "@getpaseo/plugin/client/ui": {},
   "@tanstack/react-query": {}, "zod": {z:schema}
 };
 function require(name) { assert(name in modules, "Unexpected host import: " + name); return modules[name]; }
-var panels=[], renderers=[], commands=[];
+var panels=[], renderers=[], commands=[], headers=[], opened=[];
+var directoryUnsubscribed=false;
 function register(list) {return function(item){list.push(item);return function(){list.splice(list.indexOf(item),1);};};}
 var cleanup=(0,eval)(${JSON.stringify(production.clientBundle)})(require).default({
-  addWorkspacePanel:register(panels), addTimelineRenderer:register(renderers), addCommandCenterItem:register(commands)
+  addWorkspacePanel:register(panels), addTimelineRenderer:register(renderers), addCommandCenterItem:register(commands),
+  addHeaderButton:function(item){headers.push(item);return {remove:function(){headers.splice(headers.indexOf(item),1);}};},
+  openPanel:function(id,options){opened.push({id:id,workspaceId:options.workspaceId});},
+  paseo:{workspaces:{subscribe:function(){return function(){directoryUnsubscribed=true;};},list:function(){return Promise.resolve({entries:[{id:"native-workspace"}],pageInfo:{hasMore:false}});}}}
 });
+Promise.resolve().then(function(){
+assert(headers.length===1,"native header registration");
+headers[0].button.behavior.onPress();
+assert(opened[0].id==="canvas" && opened[0].workspaceId==="native-workspace","native header navigation");
 assert(panels.length===1 && renderers.length===1 && commands.length===1,"plugin registration");
 var selection=panels[0].Component({}).props.selection;
 selection.select("workspace","canvas");
 assert(selection.get("workspace")==="canvas","production selection");
 cleanup();
+assert(directoryUnsubscribed && headers.length===0,"native header cleanup");
 assert(panels.length===0 && renderers.length===0 && commands.length===0,"plugin cleanup");
 (0,eval)(${JSON.stringify(probe.clientBundle)})(require).default()();
-print("Hermes native smoke passed: startup, registration, selection, Mermaid layouts and diagnostics, cleanup");
+print("Hermes native smoke passed: startup, header navigation, selection, Mermaid layouts and diagnostics, cleanup");
+}).catch(function(error){print(error.stack);});
 `;
   const script = path.join(dir, "smoke.js");
   await writeFile(script, harness);
   const result = spawnSync(hermes, [script], { encoding: "utf8", timeout: 30_000 });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(result.stderr || result.stdout);
+  if (result.status !== 0 || !result.stdout.includes("Hermes native smoke passed:"))
+    throw new Error(result.stderr || result.stdout);
   process.stdout.write(result.stdout);
 } finally {
   await rm(dir, { recursive: true, force: true });

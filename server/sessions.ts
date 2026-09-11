@@ -65,6 +65,12 @@ export class Sessions {
   get port() {
     return this.state?.port ?? 0;
   }
+  eligible(workspaceId: string) {
+    this.assertOpen();
+    return Object.values(this.state?.bindings ?? {})
+      .filter((b) => b.active && b.workspaceId === workspaceId)
+      .map((b) => ({ id: b.agentId, title: b.title }));
+  }
 
   async setPort(port: number) {
     await this.mutate(() => {

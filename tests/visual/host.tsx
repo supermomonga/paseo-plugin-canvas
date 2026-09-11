@@ -2,6 +2,19 @@
 // receives the actual Paseo icons, adaptive modal and toast implementations.
 import React, { useEffect, useState } from "react";
 import {
+  MessageSquare,
+  MessageSquarePlus,
+  Check,
+  CheckSquare,
+  Square,
+  Send,
+  Locate,
+  Pencil,
+  Trash2,
+  MousePointer2,
+  RotateCcw,
+  EyeOff,
+  Hash,
   Eye,
   PanelLeft,
   PanelRight,
@@ -46,6 +59,19 @@ import type {
 import type { PluginIconProps } from "@getpaseo/plugin/client";
 export { ScrollView };
 const icons = {
+  MessageSquare,
+  MessageSquarePlus,
+  Check,
+  CheckSquare,
+  Square,
+  Send,
+  Locate,
+  Pencil,
+  Trash2,
+  MousePointer2,
+  RotateCcw,
+  EyeOff,
+  Hash,
   Eye,
   PanelLeft,
   PanelRight,
@@ -194,4 +220,50 @@ export function FixtureToast() {
       {message}
     </Text>
   ) : null;
+}
+
+export function SettingsSelect({
+  label,
+  value,
+  options,
+  onValueChange,
+}: {
+  label: string;
+  value: string;
+  options: readonly { label: string; value: string }[];
+  onValueChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { colors } = usePluginTheme();
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={{ color: colors.foregroundMuted }}>{label}</Text>
+      <Pressable onPress={() => setOpen(!open)}>
+        <Text
+          style={{
+            color: colors.foreground,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: 10,
+          }}
+        >
+          {options.find((o) => o.value === value)?.label}
+        </Text>
+      </Pressable>
+      {open &&
+        options.map((o) => (
+          <Pressable
+            key={o.value}
+            onPress={() => {
+              onValueChange(o.value);
+              setOpen(false);
+            }}
+          >
+            <Text style={{ color: colors.foreground, padding: 10 }}>
+              {o.label}
+            </Text>
+          </Pressable>
+        ))}
+    </View>
+  );
 }

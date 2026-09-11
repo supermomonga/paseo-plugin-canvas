@@ -16,6 +16,18 @@ import { parseDocument } from "./server/document";
 import { renderGraphic, readImage } from "./shared/media";
 import { GraphicsRenderer } from "./server/graphics";
 import { workspaceImage } from "./server/images";
+import {
+  getReviews,
+  mutateReview,
+  getReviewRecipients,
+  sendReview,
+  retryReview,
+} from "./shared/review";
+import {
+  recipients,
+  dispatchReview,
+  retryDispatch,
+} from "./server/review-dispatch";
 
 const REGISTRATION_ENV = "PASEO_CANVAS_REGISTRATION";
 export default function contribute(server: PluginServerContext) {
@@ -61,6 +73,23 @@ export default function contribute(server: PluginServerContext) {
   server.handle(getCanvas, async ({ workspaceId, canvasId }) => {
     const result = await (await ready).store.get(workspaceId, canvasId);
     return { ...result, document: parseDocument(result.canvas.content) };
+  });
+  server.handle(getReviews, async ({ workspaceId, canvasId }) =>
+    (await ready).store.reviews.get(workspaceId, canvasId),
+  );
+  server.handle(mutateReview, async ({ workspaceId, canvasId, mutation }) =>
+    (await ready).store.reviews.mutate(workspaceId, canvasId, mutation),
+  );
+  server.handle(getReviewRecipients, async ({ workspaceId }, context) =>
+    recipients((await ready).sessions, context.paseo, workspaceId),
+  );
+  server.handle(sendReview, async (input, context) => {
+    const { store, sessions } = await ready;
+    return dispatchReview(store.reviews, sessions, context.paseo, input);
+  });
+  server.handle(retryReview, async (input, context) => {
+    const { store, sessions } = await ready;
+    return retryDispatch(store.reviews, sessions, context.paseo, input);
   });
   server.before("agent.create", async ({ request }) => {
     if (request.config.mcpServers?.["paseo-canvas"])

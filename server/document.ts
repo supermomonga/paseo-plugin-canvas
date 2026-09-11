@@ -2,7 +2,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import remarkEmoji from "remark-emoji";
+import { sourceText, blockCodeMap } from "./source-map";
 import remarkRehype from "remark-rehype";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -40,6 +40,14 @@ function extensions() {
         );
       if (!match) continue;
       first.value = first.value.slice(match[0].length);
+      if (first.position) {
+        const afterMarker = offset! + match[0].length;
+        const prefix =
+          String(file.value)
+            .slice(afterMarker)
+            .match(/^[ \t]*>[ \t]?/)?.[0].length ?? 0;
+        first.position.start.offset = afterMarker + prefix;
+      }
       if (!first.value) paragraph!.children.shift();
       if (!paragraph!.children.length) quote.children.shift();
       quote.data = { hName: "aside", hProperties: { dataAlert: match[1] } };
@@ -55,7 +63,12 @@ function extensions() {
       if (
         !/^\s*<\/?(?:details|summary|br|sub|sup)(?:\s|\/?>)/i.test(node.value)
       ) {
-        parent.children[index] = { type: "text", value: node.value } as MdText;
+        parent.children[index] = {
+          type: "text",
+          value: node.value,
+          data: { hProperties: { dataCanvasLiteral: true } },
+          position: node.position,
+        } as MdText;
       }
     });
   };
@@ -88,8 +101,8 @@ export const markdownParser = unified()
   .use(remarkGfm)
   .use(remarkMath);
 const processor = markdownParser()
-  .use(remarkEmoji, { emoticon: false })
   .use(extensions)
+  .use(sourceText)
   .use(remarkRehype, {
     allowDangerousHtml: true,
     footnoteLabel: "Footnotes",
@@ -104,7 +117,11 @@ const processor = markdownParser()
     attributes: {
       ...defaultSchema.attributes,
       aside: ["dataAlert"],
-      code: [["className", /^language-/, "math-inline", "math-display"]],
+      span: ["dataCanvasMap"],
+      code: [
+        ["className", /^language-/, "math-inline", "math-display"],
+        "dataCanvasMap",
+      ],
       details: ["open"],
     },
   });
@@ -125,11 +142,62 @@ export function parseDocument(content: string): Root {
   function clean(node: RootContent): RootContent[] {
     if (node.type === "text") return [{ type: "text", value: node.value }];
     if (node.type !== "element") return [];
+    if (
+      node.tagName === "pre" &&
+      node.position?.start.offset !== undefined &&
+      node.position?.end.offset !== undefined
+    ) {
+      const code = node.children.find(
+        (n) => n.type === "element" && n.tagName === "code",
+      ) as Element | undefined;
+      if (
+        code &&
+        !(code.properties.className as string[] | undefined)?.some(
+          (c) =>
+            c === "language-mermaid" ||
+            c === "language-math" ||
+            c === "math-display",
+        )
+      ) {
+        const text = code.children.find((n) => n.type === "text");
+        if (text?.type === "text")
+          code.properties.dataCanvasMap = blockCodeMap(
+            content,
+            node.position.start.offset,
+            node.position.end.offset,
+            text.value,
+          );
+      }
+    }
+    if (typeof node.properties.dataCanvasMap === "string")
+      node.properties.dataCanvasMap = node.properties.dataCanvasMap
+        .split(" ")
+        .filter(Boolean)
+        .map(Number);
+    if (node.tagName === "span" && Array.isArray(node.properties.dataCanvasMap))
+      return [
+        {
+          type: "text",
+          value: node.children
+            .map((n) => (n.type === "text" ? n.value : ""))
+            .join(""),
+          data: { canvasMap: node.properties.dataCanvasMap.map(Number) },
+        },
+      ];
     return [
       {
         type: "element",
         tagName: node.tagName,
-        properties: node.properties,
+        properties: {
+          ...node.properties,
+          ...(node.position?.start.offset !== undefined &&
+          node.position?.end.offset !== undefined
+            ? {
+                dataCanvasStart: node.position.start.offset,
+                dataCanvasEnd: node.position.end.offset,
+              }
+            : {}),
+        },
         children: node.children.flatMap(clean) as Element["children"],
       },
     ];

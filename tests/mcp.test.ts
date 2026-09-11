@@ -46,7 +46,7 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
       data: JSON.parse((result.content as { text: string }[])[0].text),
     };
   }
-  expect((await a.client.listTools()).tools).toHaveLength(8);
+  expect((await a.client.listTools()).tools).toHaveLength(11);
   const created = await call(a.client, "canvas.create", {
     title: "Plan",
     content: "# Plan",
@@ -63,6 +63,54 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
     expect.objectContaining({ action: "created", workspaceId: "workspace-a" }),
   );
   const canvasId = created.data.canvasId;
+  const review = await store.reviews.mutate("workspace-a", canvasId, {
+    action: "create",
+    selection: {
+      documentRevision: 1,
+      start: 2,
+      end: 6,
+      kind: "text",
+      selectedText: "Plan",
+    },
+    body: "Explain the implementation",
+  });
+  const thread = Object.values(review.state.threads)[0];
+  const request = await store.reviews.begin(
+    "workspace-a",
+    canvasId,
+    "agent-b",
+    [{ threadId: thread.id, expectedRevision: thread.revision }],
+  );
+  const current = await call(b.client, "canvas.review.get", {
+    canvasId,
+    threadId: thread.id,
+  });
+  expect(current.data.thread.currentRequestId).toBe(request.id);
+  expect(
+    (await call(c.client, "canvas.review.list", { canvasId })).data.code,
+  ).toBe("NOT_FOUND");
+  expect(
+    (
+      await call(a.client, "canvas.review.reply", {
+        canvasId,
+        threadId: thread.id,
+        expectedRevision: 2,
+        requestId: request.id,
+        kind: "question",
+        body: "Which scope?",
+      })
+    ).error,
+  ).toBe(true);
+  const reply = await call(b.client, "canvas.review.reply", {
+    canvasId,
+    threadId: thread.id,
+    expectedRevision: 2,
+    requestId: request.id,
+    kind: "question",
+    body: "Which scope?",
+  });
+  expect(reply.data.thread.status).toBe("needs_user_review");
+  expect(reply.data.thread.messages.at(-1).author.agentId).toBe("agent-b");
   const lease = await call(a.client, "lock.acquire", { canvasId });
   expect(
     (await call(b.client, "canvas.get", { canvasId })).data.canvas.editState

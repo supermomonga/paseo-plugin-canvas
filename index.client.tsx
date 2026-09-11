@@ -9,6 +9,7 @@ import {
   copyText,
 } from "@getpaseo/plugin/client/react-native";
 import { initClientHelpers } from "paseo-plugin-helper/client";
+import { registerNativeCanvasHeaders } from "./client/header";
 import { CanvasPanel } from "./client/panel";
 import { CanvasActivityRow, startActivitySync } from "./client/activity";
 import { createCanvasSelection } from "./client/selection";
@@ -56,7 +57,9 @@ export default function contribute(client: PluginClientContext) {
       openPanel("canvas");
     },
   });
+  const removeHeaders = registerNativeCanvasHeaders(client);
   return () => {
+    removeHeaders();
     stopActivitySync();
     removeActivity();
     removeCommand();

@@ -15,6 +15,7 @@ import type { Sessions } from "./sessions";
 import type { CanvasActivityQueue } from "./activity";
 import { diagnoseMarkdown } from "./diagnostics";
 import type { Actor } from "../shared/contracts";
+import { agentReplySchema } from "../shared/review";
 export async function startMcp(
   store: CanvasStore,
   sessions: Sessions,
@@ -198,6 +199,63 @@ export async function startMcp(
             await store.create(actor, title, content),
           );
         }),
+    );
+    server.registerTool(
+      "canvas.review.list",
+      {
+        description:
+          "List review threads, their current revisions, assignment, source anchors and tracking status. Workspace is inferred from your session.",
+        inputSchema: z.object({ canvasId: idSchema }).strict(),
+        annotations: readAnnotations,
+      },
+      ({ canvasId }) =>
+        result(async () => {
+          const review = await store.reviews.get(
+            sessions.resolve(token).workspaceId,
+            canvasId,
+          );
+          return {
+            documentRevision: review.documentRevision,
+            threads: Object.values(review.state.threads),
+            projections: review.projections,
+          };
+        }),
+    );
+    server.registerTool(
+      "canvas.review.get",
+      {
+        description:
+          "Read a review thread before replying. Use the returned thread revision as expectedRevision. Only the assigned session can reply; only the user can resolve.",
+        inputSchema: z
+          .object({ canvasId: idSchema, threadId: idSchema })
+          .strict(),
+        annotations: readAnnotations,
+      },
+      ({ canvasId, threadId }) =>
+        result(async () => {
+          const review = await store.reviews.get(
+            sessions.resolve(token).workspaceId,
+            canvasId,
+          );
+          const thread = review.state.threads[threadId];
+          if (!Object.hasOwn(review.state.threads, threadId))
+            throw new CanvasError("NOT_FOUND", "Review thread not found");
+          return {
+            thread,
+            position: review.projections[threadId],
+            documentRevision: review.documentRevision,
+          };
+        }),
+    );
+    server.registerTool(
+      "canvas.review.reply",
+      {
+        description:
+          "Reply to an assigned review request with question, explanation or applied. Applied requires the documentRevision saved by canvas.update. This does not resolve the thread. Read the current thread revision first.",
+        inputSchema: agentReplySchema,
+      },
+      (input) =>
+        result(() => store.reviews.reply(sessions.resolve(token), input)),
     );
     server.registerTool(
       "canvas.update",

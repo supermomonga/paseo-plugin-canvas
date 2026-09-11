@@ -17,7 +17,7 @@ Let one agent write an implementation plan and another read it in a separate ses
 - **Persistent storage:** documents survive restarts without creating files in the project tree.
 - **Paseo integration:** a shared React Native UI built with public SDK components and `paseo-plugin-helper`, adapting to wide and compact panels.
 
-The panel is **read-only**; agents create and edit canvases through MCP. Plugin UI, notifications, and errors are in English. Document content can use any language.
+Document content is **read-only** in the panel; agents create and edit canvases through MCP. Users can select content and write review comments. Plugin UI, notifications, and errors are in English. Document content can use any language.
 
 ## Get started
 
@@ -62,6 +62,8 @@ If upgrading from the earlier implementation that required a core patch, create 
 
 Both agents see the same documents. Editing ownership remains visible, and changes appear automatically. Wide panels show a list/detail split; compact panels navigate between those views.
 
+On Android and iOS, use the notebook icon in the workspace header to open Canvas. Paseo 0.8.0 does not list plugin panels in its mobile Workspace actions menu; the header button provides a direct entry point.
+
 Creating or editing a canvas adds a row to the editing agent's timeline. **Open canvas** opens its workspace panel and selects that document, including when the panel is closed. It opens the latest saved content; the revision in the row describes the save that produced the notification. Deleted documents show a deletion message.
 
 Timeline delivery runs while a Paseo client has the plugin loaded and the app is active, independently of the Canvas panel. Pending notifications are stored on the daemon and retried after reconnecting. **Paseo 0.8.0 does not preserve appended plugin rows across daemon restarts.** Already delivered rows are not replayed; canvases remain available from the workspace panel. This uses public timeline/panel APIs, without custom URL handlers or a core patch.
@@ -100,7 +102,10 @@ The server derives agent/workspace identity from the credential. Tools cannot se
 | `lock.renew` | `canvasId`, `lockToken` | Extend the current lease. |
 | `canvas.update` | `canvasId`, `lockToken`, `expectedRevision`, `title` and/or `content` | Save changes. |
 | `lock.release` | `canvasId`, `lockToken` | Release the current lease. |
-| `canvas.delete` | `canvasId`, `lockToken`, `expectedRevision` | Permanently delete a canvas. |
+| `canvas.delete` | `canvasId`, `lockToken`, `expectedRevision` | Permanently delete a canvas and its reviews. |
+| `canvas.review.list` | `canvasId` | List review threads and tracked targets. |
+| `canvas.review.get` | `canvasId`, `threadId` | Read a thread, its current revision and request. |
+| `canvas.review.reply` | `canvasId`, `threadId`, `expectedRevision`, `requestId`, `kind`, `body`, `documentRevision?` | Post a question, explanation or applied report as the assigned agent. |
 
 For an edit, read the canvas, acquire its lock, update using the current revision and returned `lockToken`, then release the lock. Renew before the five-minute lease expires. On a conflict, read the current state again; there is no automatic merge or unconditional overwrite.
 
@@ -118,6 +123,18 @@ The public lock ID differs from the secret `lockToken`. List/get expose the owne
 
 Title-only updates diagnose the retained content. Failed authorization, locking, revision checks, or writes do not produce successful-save notifications. Ordinary assistant Markdown messages are not rewritten.
 
+## Reviews
+
+Select text in Preview or Code on desktop, then choose **Add comment**. On mobile, enable **Review** to select a paragraph, heading, list item, table cell or diagram; in Code, select the first and last line. Open **Comments** to read threads and move to their targets. Wide panels show a comment rail; narrow panels use a modal sheet.
+
+Save comments first, select the threads to send, and choose an agent session. Saving a comment or reply does not send a prompt. Only sessions in the same workspace with active Canvas MCP are offered. Sending to a running agent can interrupt it; pending permissions must be handled in Paseo first.
+
+Agents ask questions and report changes with `canvas.review.reply`; users **Resolve** or **Reopen** threads. Unsent messages can be edited or deleted. Once a request is sending, accepted or has an unknown result, corrections are made as new replies. Existing document locks continue to govern edits.
+
+Unchanged selections follow document edits only when their location is unambiguous. Otherwise the thread shows **Outdated** and retains the original quote. Use **Reattach** to choose a new target. An unknown send outcome is never retried automatically; a manual retry can send twice if Paseo restarted.
+
+See [review storage and delivery](docs/review-storage.md) for the JSON schema, immutable Markdown snapshots, recovery rules and MCP tools.
+
 ## Storage
 
 Data lives on the **Paseo daemon host**, outside the project directory.
@@ -134,7 +151,10 @@ Data lives on the **Paseo daemon host**, outside the project directory.
 ├── activity/
 │   └── <canvas-id>-<revision>.json
 └── <workspace-id>/
-    └── <canvas-id>.md
+    ├── <canvas-id>.md
+    └── reviews/<canvas-id>/
+        ├── state.json
+        └── snapshots/<revision>.md
 ```
 
 The host key is a SHA-256 hash of the canonical `PASEO_HOME` path, defaulting to `~/.paseo`. Moving that home requires migrating the associated documents and `mcp.json` together.
@@ -200,8 +220,9 @@ This check compiles the production client with Paseo's release compiler and eval
 Checks performed on macOS with Node.js 22 include:
 
 - Automated storage, corruption, locking, workspace isolation, HTTP MCP, rendering, and automatic-update tests.
+- Review tests cover durable snapshots, source tracking, stale edits, assignment, explicit dispatch and unknown send results. A browser fixture uses the real store to check range selection, saving comments, Preview/Code highlighting, resolution/reopening and the 430px comment sheet. Native component tests cover block/line selection and draft retention during document updates. Review gestures in the installed Electron app and on physical Android/iOS devices remain unverified.
 - Unmodified Paseo 0.8.0 compilation, hook validation, `AgentManager`, and a custom provider fixture exercising stored-agent resume after normal exit and forced process termination.
-- The production bundle with real Codex 0.154.0: eight-tool discovery in two agents, HTTP sharing/lock conflicts, plugin-restart recovery, and no Canvas registration in a separate launch using the same isolated home. No LLM prompt was sent.
+- Before review tools were added, the production bundle with real Codex 0.154.0: eight-tool discovery in two agents, HTTP sharing/lock conflicts, plugin-restart recovery, and no Canvas registration in a separate launch using the same isolated home. No LLM prompt was sent.
 - Hermes from React Native 0.81.5 executing the release-compiled client and shared-code probes with stubbed host services.
 - Desktop/390px browser layouts and light/dark themes. Mocked native checks do not establish real-device behavior.
 

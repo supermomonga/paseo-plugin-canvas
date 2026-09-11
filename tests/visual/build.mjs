@@ -23,6 +23,7 @@ await build({
   define: { "process.env.NODE_ENV": '"development"' },
   alias: {
     "react-native": "react-native-web",
+    "@getpaseo/plugin/client/ui": path.resolve("tests/visual/host.tsx"),
     "@getpaseo/plugin/client/react-native": path.resolve(
       "tests/visual/host.tsx",
     ),

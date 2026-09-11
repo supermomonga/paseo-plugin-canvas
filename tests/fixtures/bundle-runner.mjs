@@ -75,7 +75,7 @@ providers.replace([
                 requestInit: { headers: config.headers },
               }),
             );
-            if ((await client.listTools()).tools.length !== 8)
+            if ((await client.listTools()).tools.length !== 11)
               throw new Error("Canvas tools unavailable");
             clients.set(input.sessionId, client);
             listener({

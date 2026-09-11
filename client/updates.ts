@@ -1,3 +1,4 @@
+import { getReviews } from "../shared/review";
 import { useEffect, useState } from "react";
 import { AppState } from "react-native";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -25,7 +26,7 @@ export async function refreshCanvases(
   const belongsToWorkspace = (query: { queryKey: readonly unknown[] }) => {
     const [name, input] = query.queryKey;
     return (
-      name === getCanvas.name &&
+      (name === getCanvas.name || name === getReviews.name) &&
       (input as { workspaceId?: string } | undefined)?.workspaceId ===
         workspaceId
     );

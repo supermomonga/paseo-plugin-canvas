@@ -22,6 +22,7 @@ import {
 import { CanvasChanges } from "./changes";
 import { CanvasError, isMissing } from "./errors";
 import { decodeDocument, encodeDocument } from "./format";
+import { ReviewStore } from "./reviews";
 
 type Lock = {
   info: PublicLock;
@@ -32,6 +33,7 @@ type Lock = {
 export const LOCK_TTL_MS = 300_000;
 const MAX_FILE_BYTES = 4_100_000;
 export class CanvasStore {
+  readonly reviews = new ReviewStore(this);
   private readonly changes = new CanvasChanges();
   private expiryTimer?: ReturnType<typeof setTimeout>;
   private locks = new Map<string, Lock>();
@@ -70,6 +72,12 @@ export class CanvasStore {
       options.clock ?? Date.now,
       options.monotonic ?? (() => performance.now()),
     );
+    try {
+      await store.reviews.recover();
+    } catch (error) {
+      await store.close();
+      throw error;
+    }
     return store;
   }
   async close() {
@@ -118,6 +126,23 @@ export class CanvasStore {
   assertOpen() {
     if (this.stopped)
       throw new CanvasError("STORE_UNAVAILABLE", this.stopped.message);
+  }
+  reviewTransaction<T>(
+    workspaceId: string,
+    canvasId: string,
+    action: (document: Awaited<ReturnType<CanvasStore["read"]>>) => Promise<T>,
+  ) {
+    const key = this.key(workspaceId, canvasId);
+    return this.serial(key, async () => action(await this.read(key)));
+  }
+  reviewChanged(workspaceId: string) {
+    this.assertOpen();
+    this.changes.publish(workspaceId);
+  }
+  reviewFailure() {
+    this.stop(
+      new Error("Review durability could not be confirmed; reopen the store"),
+    );
   }
   private key(workspaceId: string, canvasId: string) {
     return `${idSchema.parse(workspaceId)}/${idSchema.parse(canvasId)}`;
@@ -462,6 +487,7 @@ export class CanvasStore {
       this.locks.delete(key);
       this.scheduleExpiry();
       this.changed(key);
+      await this.reviews.remove(actor.workspaceId, input.canvasId);
       return { deleted: true };
     });
   }

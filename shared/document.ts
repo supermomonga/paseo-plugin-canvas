@@ -34,7 +34,13 @@ const property = z.union([
 ]);
 const nodeSchema: z.ZodType<ElementContent> = z.lazy(() =>
   z.union([
-    z.object({ type: z.literal("text"), value: z.string() }),
+    z.object({
+      type: z.literal("text"),
+      value: z.string(),
+      data: z
+        .object({ canvasMap: z.array(z.number().int().nonnegative()) })
+        .optional(),
+    }),
     z.object({
       type: z.literal("element"),
       tagName: z.string(),
@@ -47,3 +53,10 @@ export const documentSchema: z.ZodType<Root> = z.object({
   type: z.literal("root"),
   children: z.array(nodeSchema),
 });
+
+// Transported parser metadata; it contains source offsets, never DOM references.
+declare module "hast" {
+  interface TextData {
+    canvasMap?: number[];
+  }
+}

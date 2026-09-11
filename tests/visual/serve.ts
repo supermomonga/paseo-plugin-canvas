@@ -1,4 +1,7 @@
 import { createServer } from "node:http";
+import { CanvasStore } from "../../server/store";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseDocument } from "../../server/document";
@@ -10,6 +13,16 @@ const root = path.resolve(".test-output/visual");
 const graphics = new GraphicsRenderer();
 const changes = new CanvasChanges();
 const markdown = await readFile("tests/fixtures/gfm.md", "utf8");
+const store = await CanvasStore.open(
+  await mkdtemp(path.join(tmpdir(), "canvas-review-ui-")),
+);
+const actor = {
+  agentId: "fixture-agent",
+  workspaceId: "test",
+  sessionId: "fixture-session",
+  title: "Fixture agent",
+};
+await store.create(actor, "GFM review example", markdown);
 const server = createServer(async (req, res) => {
   try {
     if (req.method === "POST" && req.url?.startsWith("/rpc/")) {
@@ -24,18 +37,26 @@ const server = createServer(async (req, res) => {
       const name = req.url.slice(5);
       let result;
       if (name === "canvas.wait_for_change")
-        result = await changes.wait(input.workspaceId, input.cursor);
+        result = await store.waitForChange(input.workspaceId, input.cursor);
       else if (name === "canvas.render_graphic")
         result = await graphics.render(input);
       else if (name === "canvas.read_image")
         result = await workspaceImage(root, input.src);
-      else {
-        result = getFixtureQuery({ name }, input).data;
-        if (name === "canvas.get") {
-          const canvas = { ...(result as any).canvas, content: markdown };
-          result = { canvas, document: parseDocument(markdown) };
-        }
-      }
+      else if (name === "canvas.list")
+        result = await store.list(input.workspaceId);
+      else if (name === "canvas.get") {
+        const value = await store.get(input.workspaceId, input.canvasId);
+        result = { ...value, document: parseDocument(value.canvas.content) };
+      } else if (name === "canvas.review.get")
+        result = await store.reviews.get(input.workspaceId, input.canvasId);
+      else if (name === "canvas.review.mutate")
+        result = await store.reviews.mutate(
+          input.workspaceId,
+          input.canvasId,
+          input.mutation,
+        );
+      else if (name === "canvas.review.recipients") result = [];
+      else throw new Error("Unknown fixture RPC");
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(result));
       return;
@@ -67,7 +88,9 @@ const server = createServer(async (req, res) => {
 server.listen(49618, "127.0.0.1", () =>
   console.log("Canvas preview: http://127.0.0.1:49618"),
 );
-process.on("SIGINT", () => {
+process.once("SIGINT", () => {
   server.close();
-  void graphics.close().then(() => process.exit(0));
+  void Promise.all([store.close(), graphics.close()]).then(() =>
+    process.exit(0),
+  );
 });

@@ -1,14 +1,27 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, expect, test, vi } from "vitest";
+vi.mock("../client/web", () => ({
+  observeTextSelection: () => () => {},
+  registerSelectionLeaf: () => {},
+}));
+vi.mock("@getpaseo/plugin/client/ui", () => ({ SettingsSelect: () => null }));
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-query")>()),
+  useQueryClient: () => ({ setQueryData: () => {} }),
+}));
 vi.mock("../client/updates", () => ({ useCanvasUpdates: () => null }));
+const reviewCalls = vi.hoisted(() =>
+  vi.fn(async (_name: string, _input: unknown) => undefined),
+);
 const nativePlatform = vi.hoisted(() => ({ OS: "web" }));
 const lifecycle = vi.hoisted(() => ({
   listener: undefined as ((state: string) => void) | undefined,
   remove: vi.fn(),
 }));
 vi.mock("@getpaseo/plugin/client", () => ({
-  useRpc: () => async () => undefined,
+  useRpc: (contract: { name: string }) => async (input: unknown) =>
+    reviewCalls(contract.name, input),
 }));
 vi.mock("react-native", () => ({
   AppState: {
@@ -85,6 +98,13 @@ vi.mock("paseo-plugin-helper/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("paseo-plugin-helper/client")>()),
   useRpcQuery: (contract: { name: string }, input: unknown) => {
     queries.inputs(contract.name, input);
+    if (contract.name.startsWith("canvas.review."))
+      return {
+        data: undefined,
+        error: null,
+        refetch: vi.fn(),
+        isFetching: false,
+      };
     return contract.name === "canvas.list"
       ? queries.list
       : contract.name === "canvas.get"
@@ -103,11 +123,13 @@ import {
 initClientHelpers({
   Icon: () => null,
   Modal: Object.assign(() => null, { Content: () => null }),
-  useRpc: () => async () => undefined,
+  useRpc: (contract) => async (input) => reviewCalls(contract.name, input),
   useToast: () => ({ show: () => {}, copied: () => {}, error: () => {} }),
 });
 import { parseDocument } from "../server/document";
 import { Markdown, safeLink } from "../client/markdown";
+import { ReviewDocument } from "../client/review";
+import type { Canvas } from "../shared/contracts";
 import { CanvasPanel } from "../client/panel";
 import contribute from "../index.client";
 import { startActivitySync } from "../client/activity";
@@ -1125,4 +1147,157 @@ test("activity delivery runs without a panel, pauses in background, retries, and
     vi.useRealTimers();
     warn.mockRestore();
   }
+});
+
+function reviewCanvas(content: string): Canvas {
+  return {
+    schemaVersion: 1,
+    workspaceId: "workspace-a",
+    canvasId: "canvas-a",
+    title: "Review",
+    revision: 1,
+    createdAt: "2026-09-12T00:00:00Z",
+    updatedAt: "2026-09-12T00:00:00Z",
+    updatedByAgentId: "agent-a",
+    editState: { status: "unlocked" },
+    content,
+  };
+}
+function reviewView(canvas: Canvas, mode: "preview" | "source") {
+  return (
+    <PluginThemeProvider theme={theme}>
+      <ReviewDocument
+        canvas={canvas}
+        document={parseDocument(canvas.content)}
+        mode={mode}
+        theme={theme}
+        fontSize={14}
+      />
+    </PluginThemeProvider>
+  );
+}
+test.each([false, true])(
+  "native line selection preserves UTF-16 source and unsaved drafts across updates (reverse=%s)",
+  async (reverse) => {
+    nativePlatform.OS = "android";
+    const canvas = reviewCanvas("first\n日本語 🚀\nthird\n");
+    let view!: ReactTestRenderer;
+    await act(async () => {
+      view = create(reviewView(canvas, "source"));
+    });
+    await act(async () =>
+      button(view, reverse ? "Select line 3" : "Select line 2").props.onPress(),
+    );
+    await act(async () =>
+      button(view, reverse ? "Select line 2" : "Select line 3").props.onPress(),
+    );
+    await act(async () => button(view, "Add comment").props.onPress());
+    expect(JSON.stringify(view.toJSON())).toContain("日本語 🚀\\nthird\\n");
+    const input = view.root
+      .findAllByType("TextInput" as never)
+      .find((n) => n.props.placeholder === "Describe the change you want")!;
+    await act(async () => input.props.onChangeText("Keep this draft"));
+    await act(async () =>
+      view.update(
+        reviewView(
+          { ...canvas, revision: 2, content: "prefix\n" + canvas.content },
+          "source",
+        ),
+      ),
+    );
+    expect(JSON.stringify(view.toJSON())).toContain("Keep this draft");
+    await act(async () => button(view, "Save comment").props.onPress());
+    expect(reviewCalls).toHaveBeenCalledWith(
+      "canvas.review.mutate",
+      expect.objectContaining({
+        mutation: {
+          action: "create",
+          body: "Keep this draft",
+          selection: {
+            documentRevision: 1,
+            kind: "lines",
+            start: 6,
+            end: canvas.content.length,
+            selectedText: "日本語 🚀\nthird\n",
+          },
+        },
+      }),
+    );
+    await act(async () => view.unmount());
+  },
+);
+test("native preview enters explicit selection mode and saves a whole block", async () => {
+  nativePlatform.OS = "android";
+  const canvas = reviewCanvas("# Title\n\n日本語 **strong**\n");
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(reviewView(canvas, "preview"));
+  });
+  expect(
+    view.root.findAllByProps({ accessibilityLabel: "Select p for review" }),
+  ).toHaveLength(0);
+  await act(async () => button(view, "Review").props.onPress());
+  await act(async () =>
+    view.root
+      .findByProps({ accessibilityLabel: "Select p for review" })
+      .props.onPress(),
+  );
+  await act(async () => button(view, "Add comment").props.onPress());
+  const input = view.root
+    .findAllByType("TextInput" as never)
+    .find((n) => n.props.placeholder === "Describe the change you want")!;
+  await act(async () => input.props.onChangeText("Clarify the paragraph"));
+  await act(async () => button(view, "Save comment").props.onPress());
+  expect(reviewCalls).toHaveBeenCalledWith(
+    "canvas.review.mutate",
+    expect.objectContaining({
+      mutation: {
+        action: "create",
+        body: "Clarify the paragraph",
+        selection: {
+          documentRevision: 1,
+          kind: "block",
+          start: 9,
+          end: 23,
+          selectedText: "日本語 strong",
+        },
+      },
+    }),
+  );
+  await act(async () => view.unmount());
+});
+
+test("repeated Go to target opens a details ancestor that the user closed", async () => {
+  const source =
+    "<details>\n<summary>More</summary>\n\n# Inner\n\nBody\n\n</details>";
+  const document = parseDocument(source);
+  const bindings = {
+    enabled: false,
+    navigate: source.indexOf("Inner"),
+    navigationRequest: 1,
+    register: () => {},
+    text: (value: string) => value,
+    wrap: (_node: unknown, child: React.ReactNode) => child,
+    select: () => {},
+  };
+  const render = (navigationRequest: number) => (
+    <PluginThemeProvider theme={theme}>
+      <Markdown
+        document={document}
+        theme={theme}
+        onError={() => {}}
+        review={{ ...bindings, navigationRequest }}
+      />
+    </PluginThemeProvider>
+  );
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(render(1));
+  });
+  expect(button(view, "Collapse More")).toBeDefined();
+  await act(async () => button(view, "Collapse More").props.onPress());
+  expect(button(view, "Expand More")).toBeDefined();
+  await act(async () => view.update(render(2)));
+  expect(button(view, "Collapse More")).toBeDefined();
+  await act(async () => view.unmount());
 });

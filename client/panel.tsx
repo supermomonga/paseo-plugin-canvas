@@ -1,5 +1,5 @@
-import { useState, useRef, useSyncExternalStore, type ReactNode } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { Pressable, Text, View } from "react-native";
 import {
   Icon,
   Modal,
@@ -26,7 +26,7 @@ import {
 } from "../shared/contracts";
 import { useCanvasUpdates } from "./updates";
 import { createCanvasSelection, type CanvasSelection } from "./selection";
-import { Markdown } from "./markdown";
+import { ReviewDocument } from "./review";
 import { HEADER_HEIGHT, ToolbarButton, titleText, metaText } from "./controls";
 
 // Paseo docs/design.md and styles/theme.ts: use the public theme colors and the
@@ -39,7 +39,6 @@ const labelStyle = {
 } as const;
 const sidebarWidth = 320;
 const detailMinWidth = 400;
-const readingWidth = 820;
 
 function lockLabel(state: EditState) {
   return state.status === "locked"
@@ -359,7 +358,7 @@ function CanvasDetail({
 }) {
   const colors = theme.colors;
   const toast = useToast();
-  const scroll = useRef<import("react-native").ScrollView>(null);
+
   const [mode, setMode] = useState<"preview" | "source">("preview");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detail = useRpcQuery(
@@ -502,54 +501,13 @@ function CanvasDetail({
             <CenteredText theme={theme}>Loading…</CenteredText>
           )}
           {canvas && (
-            <ScrollView
-              ref={scroll}
-              key={mode}
-              style={{ flex: 1 }}
-              contentContainerStyle={{
-                paddingHorizontal: 16,
-                paddingTop: 16,
-                paddingBottom: 24,
-              }}
-            >
-              <View
-                style={{
-                  width: "100%",
-                  maxWidth: mode === "preview" ? readingWidth : undefined,
-                  alignSelf: "center",
-                }}
-              >
-                {mode === "source" ? (
-                  <Text
-                    selectable
-                    style={{
-                      color: colors.foreground,
-                      fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-                      fontSize: 12,
-                      lineHeight: 22,
-                    }}
-                  >
-                    {canvas.content}
-                  </Text>
-                ) : (
-                  <Markdown
-                    document={detail.data!.document}
-                    workspaceId={workspaceId}
-                    onNavigate={(offset) =>
-                      scroll.current?.scrollTo({
-                        y: offset + 16,
-                        animated: true,
-                      })
-                    }
-                    theme={theme}
-                    contentFontSize={
-                      platform === "ios" || platform === "android" ? 16 : 15
-                    }
-                    onError={toast.error}
-                  />
-                )}
-              </View>
-            </ScrollView>
+            <ReviewDocument
+              canvas={canvas}
+              document={detail.data!.document}
+              theme={theme}
+              mode={mode}
+              fontSize={platform === "ios" || platform === "android" ? 16 : 15}
+            />
           )}
         </>
       )}

@@ -7,6 +7,7 @@ import type { Root, Element, ElementContent, RootContent } from "hast";
 import { textContent, externalLink, type AlertType } from "../shared/document";
 import { DocumentImage, Graphic } from "./media";
 import { Mermaid } from "./mermaid/viewer";
+import { type ReviewBindings, sourceRange } from "./review-bindings";
 import { tableColumnWidths } from "../shared/table";
 
 export const safeLink = externalLink;
@@ -32,8 +33,10 @@ export function Markdown({
   contentFontSize = 15,
   workspaceId,
   onNavigate,
+  review,
 }: {
   document: Root;
+  review?: ReviewBindings;
   theme: PluginTheme;
   onError: (message: string) => void;
   contentFontSize?: number;
@@ -55,6 +58,29 @@ export function Markdown({
     setExpanded(new Map());
     setPending(undefined);
   }, [tree]);
+  useEffect(() => {
+    if (review?.navigate == null) return;
+    const at = review.navigate;
+    setExpanded((previous) => {
+      const next = new Map(previous);
+      function scan(nodes: RootContent[]) {
+        for (const n of nodes)
+          if (element(n)) {
+            const range = sourceRange(n);
+            if (
+              n.tagName === "details" &&
+              range &&
+              range.start <= at &&
+              range.end >= at
+            )
+              next.set(n, true);
+            scan(n.children);
+          }
+      }
+      scan(tree.children);
+      return next;
+    });
+  }, [review?.navigate, review?.navigationRequest, tree]);
   function measure(id: string) {
     const target = anchors.current.get(id);
     if (!target || !root.current) return;
@@ -135,7 +161,7 @@ export function Markdown({
       : {};
   }
   function graphic(node: Element, display: boolean, key: string) {
-    return (
+    const rendered = (
       <Graphic
         key={key}
         theme={theme}
@@ -151,6 +177,18 @@ export function Markdown({
         }}
       />
     );
+    return review && !display ? (
+      <Text
+        key={key}
+        onPress={() => review.select(node)}
+        accessibilityRole="button"
+        accessibilityLabel="Select math for review"
+      >
+        {rendered}
+      </Text>
+    ) : (
+      rendered
+    );
   }
   function inline(
     nodes: RootContent[],
@@ -159,7 +197,16 @@ export function Markdown({
   ): ReactNode[] {
     return nodes.map((node, index) => {
       const key = `${prefix}.${index}`;
-      if (node.type === "text") return node.value.replace(/\r?\n/g, " ");
+      if (node.type === "text") {
+        const value = node.value.replace(/\r?\n/g, " ");
+        return review && !measuring
+          ? review.text(
+              value,
+              node.data?.canvasMap as number[] | undefined,
+              key,
+            )
+          : value;
+      }
       if (!element(node)) return null;
       const children = () => inline(node.children, key, measuring);
       switch (node.tagName) {
@@ -191,7 +238,13 @@ export function Markdown({
               key={key}
               style={{ fontFamily: mono, backgroundColor: colors.surface2 }}
             >
-              {textContent(node)}
+              {review && !measuring
+                ? review.text(
+                    textContent(node),
+                    node.properties.dataCanvasMap as number[] | undefined,
+                    key,
+                  )
+                : textContent(node)}
             </Text>
           );
         case "sub":
@@ -227,7 +280,11 @@ export function Markdown({
                   ? node.properties.ariaLabel
                   : undefined
               }
-              onPress={!measuring && enabled ? () => openLink(href) : undefined}
+              onPress={
+                !measuring && enabled && !review?.enabled
+                  ? () => openLink(href)
+                  : undefined
+              }
               style={{
                 color: enabled ? colors.foreground : colors.foregroundMuted,
                 textDecorationLine: enabled ? "underline" : "none",
@@ -237,8 +294,8 @@ export function Markdown({
             </Text>
           );
         }
-        case "img":
-          return (
+        case "img": {
+          const image = (
             <DocumentImage
               key={`${key}:${node.properties.src}`}
               inline
@@ -249,6 +306,19 @@ export function Markdown({
               workspaceId={workspaceId}
             />
           );
+          return review && !measuring ? (
+            <Text
+              key={key}
+              onPress={() => review.select(node)}
+              accessibilityRole="button"
+              accessibilityLabel="Select image for review"
+            >
+              {image}
+            </Text>
+          ) : (
+            image
+          );
+        }
         case "input":
           return null;
         default:
@@ -288,6 +358,12 @@ export function Markdown({
     return result;
   }
   function block(node: Element, key: string): ReactNode {
+    const result = renderBlock(node, key);
+    return review && /^(p|h[1-6]|pre|table)$/.test(node.tagName)
+      ? review.wrap(node, result, key)
+      : result;
+  }
+  function renderBlock(node: Element, key: string): ReactNode {
     if (/^h[1-6]$/.test(node.tagName))
       return (
         <View key={key} {...anchorProps(node)}>
@@ -350,6 +426,35 @@ export function Markdown({
           );
         if (language === "math" || classes(code).includes("math-display"))
           return graphic(code, true, key);
+        if (review)
+          return (
+            <View
+              key={key}
+              style={{
+                padding: 12,
+                backgroundColor: colors.surface1,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 6,
+              }}
+            >
+              <Text
+                selectable
+                style={{
+                  fontFamily: mono,
+                  fontSize: 12,
+                  lineHeight: 22,
+                  color: colors.foreground,
+                }}
+              >
+                {review.text(
+                  textContent(code),
+                  code.properties.dataCanvasMap as number[] | undefined,
+                  key,
+                )}
+              </Text>
+            </View>
+          );
         return (
           <CodeBlock
             key={key}
@@ -440,7 +545,7 @@ export function Markdown({
                   return [child];
                 });
               const children = removeCheckbox(item.children);
-              return (
+              const rendered = (
                 <View
                   key={i}
                   {...anchorProps(item)}
@@ -473,6 +578,9 @@ export function Markdown({
                   </View>
                 </View>
               );
+              return review
+                ? review.wrap(item, rendered, `${key}.item${i}`)
+                : rendered;
             })}
           </View>
         );
@@ -494,6 +602,7 @@ export function Markdown({
             rows={rows}
             theme={theme}
             textStyle={textStyle}
+            review={review}
             renderCell={(cell, row, column, measuring) =>
               inline(cell.children, `${key}.${row}.${column}`, measuring)
             }
@@ -563,8 +672,10 @@ function MarkdownTable({
   theme,
   textStyle,
   renderCell,
+  review,
 }: {
   rows: Element[];
+  review?: ReviewBindings;
   theme: PluginTheme;
   textStyle: TextStyle;
   renderCell: (
@@ -672,8 +783,18 @@ function MarkdownTable({
               {row.map((cell, c) => (
                 <Text
                   key={c}
+                  ref={(node) =>
+                    review?.register(
+                      `cell:${r}.${c}:${sourceRange(cell)?.start}`,
+                      node,
+                      sourceRange(cell),
+                    )
+                  }
                   role={cell.tagName === "th" ? "columnheader" : "cell"}
-                  selectable
+                  selectable={!review?.enabled}
+                  onPress={
+                    review?.enabled ? () => review.select(cell) : undefined
+                  }
                   style={{
                     ...cellStyle(cell),
                     width: widths[c],

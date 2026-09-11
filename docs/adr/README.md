@@ -6,3 +6,4 @@
 * [6. Render diagrams and mathematics without Chromium or WebView](0006-render-diagrams-and-mathematics-without-chromium-or-webview.md)
 * [7. Refresh canvases through workspace-scoped long polling](0007-refresh-canvases-through-workspace-scoped-long-polling.md)
 * [8. Return rendering diagnostics and open canvases from plugin timeline rows](0008-return-rendering-diagnostics-and-open-canvases-from-plugin-timeline-rows.md)
+* [9. Persist source-anchored reviews and explicitly dispatch agent requests](0009-persist-source-anchored-reviews-and-explicitly-dispatch-agent-requests.md)
