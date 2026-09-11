@@ -50,7 +50,7 @@ test("real local renderer draws math without a browser, rejects invalid input an
   }
   await expect(
     renderer.render({ ...base, kind: "math", source: "a" }),
-  ).rejects.toThrow("終了");
+  ).rejects.toThrow("shut down");
 }, 60_000);
 
 test("inline math retains both sides of relation operators in one SVG", () => {

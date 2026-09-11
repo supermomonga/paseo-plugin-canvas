@@ -85,14 +85,14 @@ function Preview() {
               fontSize: 12,
             }}
           >
-            Canvas・表示確認用
+            Canvas · UI preview
           </Text>
           <Button
             variant="secondary"
             size="sm"
             icon={darkMode ? "Sun" : "Moon"}
-            label={darkMode ? "ライト" : "ダーク"}
-            accessibilityLabel="テーマを切り替える"
+            label={darkMode ? "Light" : "Dark"}
+            accessibilityLabel="Toggle theme"
             onPress={() => setDarkMode((value) => !value)}
           />
         </View>

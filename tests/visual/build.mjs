@@ -30,7 +30,7 @@ await build({
 });
 await writeFile(
   ".test-output/visual/index.html",
-  '<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Canvas UI verification</title><style>html,body,#root{height:100%;margin:0}#root{display:flex;flex-direction:column}</style><div id="root"></div><script>window.addEventListener("error",event=>{const message=document.createElement("pre");message.textContent=event.message;document.body.append(message)})</script><script src="app.js"></script></html>',
+  '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Canvas UI verification</title><style>html,body,#root{height:100%;margin:0}#root{display:flex;flex-direction:column}</style><div id="root"></div><script>window.addEventListener("error",event=>{const message=document.createElement("pre");message.textContent=event.message;document.body.append(message)})</script><script src="app.js"></script></html>',
 );
 
 // A deterministic 320 x 160 PNG verifies actual image layout, not a broken URL.

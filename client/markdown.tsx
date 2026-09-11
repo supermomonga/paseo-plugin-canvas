@@ -63,7 +63,7 @@ export function Markdown({
         onNavigate?.(y);
         setPending(undefined);
       },
-      () => onError("移動先の位置を取得できませんでした"),
+      () => onError("Unable to locate the link target"),
     );
   }
   useEffect(() => {
@@ -78,7 +78,7 @@ export function Markdown({
       try {
         id = decodeURIComponent(href.slice(1));
       } catch {
-        onError("リンクの形式が不正です");
+        onError("Invalid link format");
         return;
       }
       const parents: Element[] = [];
@@ -100,7 +100,7 @@ export function Markdown({
         return false;
       }
       if (!find(tree.children, [])) {
-        onError("リンク先の見出しまたは脚注が見つかりません");
+        onError("The linked heading or footnote was not found");
         return;
       }
       setExpanded(
@@ -115,7 +115,7 @@ export function Markdown({
       const url = externalLink(href);
       if (url)
         void Linking.openURL(url).catch(() =>
-          onError("リンクを開けませんでした"),
+          onError("Unable to open the link"),
         );
     }
   }
@@ -363,7 +363,7 @@ export function Markdown({
         return (
           <View
             key={key}
-            accessibilityLabel={`${alert.label}の注記`}
+            accessibilityLabel={`${alert.label} alert`}
             style={{
               borderLeftWidth: 3,
               borderColor: color,
@@ -445,8 +445,8 @@ export function Markdown({
                     accessibilityLabel={
                       checkbox
                         ? checkbox.properties.checked
-                          ? "完了"
-                          : "未完了"
+                          ? "Complete"
+                          : "Incomplete"
                         : undefined
                     }
                     style={{
@@ -545,9 +545,9 @@ export function Markdown({
               variant="secondary"
               size="sm"
               style={{ justifyContent: "flex-start" }}
-              label={summary ? textContent(summary) : "詳細"}
+              label={summary ? textContent(summary) : "Details"}
               icon={open ? "ChevronDown" : "ChevronRight"}
-              accessibilityLabel={`${summary ? textContent(summary) : "詳細"}を${open ? "閉じる" : "開く"}`}
+              accessibilityLabel={`${open ? "Collapse" : "Expand"} ${summary ? textContent(summary) : "details"}`}
               onPress={() =>
                 setExpanded((previous) => {
                   const next = new Map(previous);

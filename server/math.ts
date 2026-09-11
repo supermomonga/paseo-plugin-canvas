@@ -29,7 +29,7 @@ export function mathSvg(input: GraphicInput): string {
     maxMacros: 1000,
     maxBuffer: 50_000,
     formatError: (_jax: unknown, error: Error) => {
-      throw new Error(`数式を解析できません: ${error.message}`);
+      throw new Error(`Unable to parse math: ${error.message}`);
     },
   });
   const doc = mathjax.document("", {
@@ -49,10 +49,10 @@ export function mathSvg(input: GraphicInput): string {
     containerWidth: 1200,
   });
   if (adaptor.childNodes(container).length !== 1)
-    throw new Error("数式全体を1つの画像に変換できませんでした");
+    throw new Error("Unable to convert the entire expression into a single image");
   const svg = adaptor.firstChild(container);
   if (!svg || !("attributes" in svg) || adaptor.kind(svg) !== "svg")
-    throw new Error("数式のSVGを生成できませんでした");
+    throw new Error("Unable to generate an SVG for the expression");
   const bounds = String(adaptor.getAttribute(svg, "viewBox"))
     .split(/\s+/)
     .map(Number);
@@ -64,7 +64,7 @@ export function mathSvg(input: GraphicInput): string {
     width <= 0 ||
     height <= 0
   )
-    throw new Error("数式の表示サイズを取得できませんでした");
+    throw new Error("Unable to determine the expression dimensions");
   adaptor.setAttribute(svg, "width", String(width));
   adaptor.setAttribute(svg, "height", String(height));
   adaptor.setAttribute(svg, "color", input.foreground);

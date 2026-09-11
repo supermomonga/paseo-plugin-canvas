@@ -30,7 +30,7 @@ export default function contribute(client: PluginClientContext) {
   });
   const removeCommand = client.addCommandCenterItem({
     id: "open-canvas",
-    title: "Canvasを開く",
+    title: "Open Canvas",
     icon: "NotebookPen",
     context: "workspace",
     onSelect({ openPanel }) {

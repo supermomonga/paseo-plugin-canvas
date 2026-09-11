@@ -183,7 +183,7 @@ async function openCanvas(view: ReactTestRenderer) {
   await act(async () =>
     view.root
       .findAllByType("Pressable" as never)
-      .find((item) => item.props.accessibilityLabel === "実装プランを開く")!
+      .find((item) => item.props.accessibilityLabel === "Open 実装プラン")!
       .props.onPress(),
   );
 }
@@ -200,12 +200,12 @@ test.each([false, true])(
       await openCanvas(view);
       expect(JSON.stringify(view.toJSON())).not.toContain("メモ");
     }
-    expect(view.root.findByType(Badge).props.label).toBe("編集中");
+    expect(view.root.findByType(Badge).props.label).toBe("Editing");
     expect(JSON.stringify(view.toJSON())).toContain("Agent A");
     expect(JSON.stringify(view.toJSON())).not.toContain(
       summary.editState.lock.expiresAt,
     );
-    await act(async () => button(view, "詳細").props.onPress());
+    await act(async () => button(view, "Details").props.onPress());
     expect(JSON.stringify(view.toJSON())).toContain(
       summary.editState.lock.expiresAt,
     );
@@ -216,12 +216,12 @@ test.each([false, true])(
           item.props.accessibilityRole === "tab" &&
           item
             .findAllByType("Text" as never)
-            .some((text) => text.children.includes("コード")),
+            .some((text) => text.children.includes("Code")),
       )!;
     await act(async () => sourceTab.props.onPress());
     expect(JSON.stringify(view.toJSON())).toContain("# 原文");
     if (compact) {
-      await act(async () => button(view, "Canvas一覧に戻る").props.onPress());
+      await act(async () => button(view, "Back to canvases").props.onPress());
       expect(JSON.stringify(view.toJSON())).toContain("メモ");
       expect(view.root.findAllByType(Tabs)).toHaveLength(0);
     }
@@ -242,7 +242,7 @@ test("narrow desktop pane switches to list/detail navigation when the split cann
   );
   expect(view.root.findAllByType(Tabs)).toHaveLength(0);
   await openCanvas(view);
-  expect(button(view, "Canvas一覧に戻る")).toBeDefined();
+  expect(button(view, "Back to canvases")).toBeDefined();
   await act(async () => view.unmount());
 });
 
@@ -251,13 +251,13 @@ test("copy success and failure use the host toast instead of inserting content i
   await act(async () => {
     view = create(panel(false));
   });
-  await act(async () => button(view, "本文をコピー").props.onPress());
+  await act(async () => button(view, "Copy content").props.onPress());
   expect(host.copy).toHaveBeenCalledWith("# 原文\n\n**共有**");
-  expect(host.show).toHaveBeenCalledWith("本文をコピーしました");
-  expect(JSON.stringify(view.toJSON())).not.toContain("本文をコピーしました");
+  expect(host.show).toHaveBeenCalledWith("Content copied");
+  expect(JSON.stringify(view.toJSON())).not.toContain("Content copied");
   host.copy.mockRejectedValueOnce(new Error("denied"));
-  await act(async () => button(view, "本文をコピー").props.onPress());
-  expect(host.error).toHaveBeenCalledWith("本文をコピーできませんでした");
+  await act(async () => button(view, "Copy content").props.onPress());
+  expect(host.error).toHaveBeenCalledWith("Unable to copy content");
   await act(async () => view.unmount());
 });
 
@@ -271,14 +271,14 @@ test("fetch failure distinguishes an initial failure from cached content and off
   expect(
     view.root
       .findAllByType("Text" as never)
-      .some((item) => item.children.join("") === "一覧を取得できませんでした"),
+      .some((item) => item.children.join("") === "Unable to load canvases"),
   ).toBe(true);
-  expect(JSON.stringify(view.toJSON())).not.toContain("最後に取得した");
-  await act(async () => button(view, "一覧を再取得").props.onPress());
+  expect(JSON.stringify(view.toJSON())).not.toContain("last loaded");
+  await act(async () => button(view, "Refresh canvases").props.onPress());
   expect(queries.list.refetch).toHaveBeenCalled();
   queries.list.data = { items: [summary] };
   await act(async () => view.update(panel(true)));
-  expect(JSON.stringify(view.toJSON())).toContain("最後に取得した");
+  expect(JSON.stringify(view.toJSON())).toContain("last loaded");
   expect(JSON.stringify(view.toJSON())).toContain("実装プラン");
   await act(async () => view.unmount());
 });
@@ -291,10 +291,10 @@ test("a remotely deleted selection is explicit and the compact list stays reacha
   await openCanvas(view);
   queries.list.data = { items: [] };
   await act(async () => view.update(panel(true)));
-  expect(JSON.stringify(view.toJSON())).toContain("このCanvasは削除されました");
+  expect(JSON.stringify(view.toJSON())).toContain("This canvas has been deleted");
   expect(view.root.findAllByType(Tabs)).toHaveLength(0);
-  await act(async () => button(view, "Canvas一覧に戻る").props.onPress());
-  expect(JSON.stringify(view.toJSON())).toContain("Canvasはまだありません");
+  await act(async () => button(view, "Back to canvases").props.onPress());
+  expect(JSON.stringify(view.toJSON())).toContain("No canvases yet");
   await act(async () => view.unmount());
 });
 
@@ -366,7 +366,7 @@ test("a heading link expands its enclosing details before scrolling, and missing
   expect(navigate).toHaveBeenCalledWith(320);
   await act(async () => links[1].props.onPress());
   expect(error).toHaveBeenCalledWith(
-    "リンク先の見出しまたは脚注が見つかりません",
+    "The linked heading or footnote was not found",
   );
   await act(async () => view.unmount());
 });
@@ -399,11 +399,11 @@ test("media errors remain visible and offer retry without hiding source access",
       </PluginThemeProvider>,
     );
   });
-  expect(JSON.stringify(view.toJSON())).toContain("描画できませんでした");
-  expect(JSON.stringify(view.toJSON())).toContain("画像を表示できません");
-  await act(async () => button(view, "再試行").props.onPress());
+  expect(JSON.stringify(view.toJSON())).toContain("Failed to render");
+  expect(JSON.stringify(view.toJSON())).toContain("Unable to display image");
+  await act(async () => button(view, "Retry").props.onPress());
   expect(mediaResult.refetch).toHaveBeenCalled();
-  expect(button(view, "記法を表示")).toBeDefined();
+  expect(button(view, "Show source")).toBeDefined();
   await act(async () => view.unmount());
 });
 
@@ -429,24 +429,24 @@ test("Mermaid uses native views, supports zoom/reset and source inspection witho
     tree.root
       .findAllByType("Text" as any)
       .find((node) =>
-        String(node.props.accessibilityLabel).startsWith("倍率 "),
+        String(node.props.accessibilityLabel).startsWith("Zoom "),
       )!.props.children;
   const initial = scale().join("");
   await act(async () => {
     buttons()
-      .find((node) => node.props.label === "拡大")!
+      .find((node) => node.props.label === "Zoom in")!
       .props.onPress();
   });
   expect(scale().join("")).not.toBe(initial);
   await act(async () => {
     buttons()
-      .find((node) => node.props.label === "全体を収める")!
+      .find((node) => node.props.label === "Fit to view")!
       .props.onPress();
   });
   expect(scale().join("")).toBe(initial);
   await act(async () => {
     buttons()
-      .find((node) => node.props.label === "コードを表示")!
+      .find((node) => node.props.label === "Show code")!
       .props.onPress();
   });
   await act(async () =>
@@ -477,7 +477,7 @@ test("Mermaid exposes unsupported sequence blocks instead of showing an incomple
     );
   });
   expect(JSON.stringify(tree.toJSON())).toContain(
-    "未対応または解析できない記法",
+    "Unsupported or unrecognized syntax",
   );
   expect(
     tree.root.findAll((node) => node.props.testID === "mermaid-viewport"),
@@ -533,7 +533,7 @@ test.each(["web", "ios", "android"] as const)(
       for (let i = 0; i < 3; i++)
         tree.root
           .findAllByType(Button)
-          .find((n) => n.props.label === "拡大")!
+          .find((n) => n.props.label === "Zoom in")!
           .props.onPress();
     });
     expect(
@@ -591,12 +591,12 @@ test.each(["web", "ios", "android"] as const)(
     await act(async () => {
       tree = create(render("https://example.com/one.png"));
     });
-    expect(JSON.stringify(tree.toJSON())).toContain("読み込み中");
+    expect(JSON.stringify(tree.toJSON())).toContain("Loading image");
     await act(async () => {
       tree.update(render("https://example.com/two.png"));
     });
     await act(async () => loads[0](800, 600));
-    expect(JSON.stringify(tree.toJSON())).toContain("読み込み中");
+    expect(JSON.stringify(tree.toJSON())).toContain("Loading image");
     await act(async () => loads[1](400, 200));
     expect(tree.root.findByType(Image).props.style).toEqual({
       width: 240,
@@ -604,7 +604,7 @@ test.each(["web", "ios", "android"] as const)(
     });
     expect(tree.root.findByType(Image).props.onLoad).toBeUndefined();
     await act(async () => tree.root.findByType(Image).props.onError());
-    expect(JSON.stringify(tree.toJSON())).toContain("画像を表示できません");
+    expect(JSON.stringify(tree.toJSON())).toContain("Unable to display image");
     await act(async () =>
       tree.root.findByProps({ accessibilityRole: "button" }).props.onPress(),
     );
@@ -635,7 +635,7 @@ test.each(["web", "ios", "android"] as const)(
         </PluginThemeProvider>,
       );
     });
-    await act(async () => button(tree, "ポップアップ").props.onPress());
+    await act(async () => button(tree, "Pop out").props.onPress());
     const popup = tree.root.findByProps({ testID: "mermaid-popup" });
     expect(popup.props.style).toMatchObject({ flex: 1, margin: 12 });
     await act(async () =>
@@ -656,7 +656,7 @@ test.each(["web", "ios", "android"] as const)(
     await act(async () =>
       diagram
         .findAllByType(Button)
-        .find((n) => n.props.label === "コードを表示")!
+        .find((n) => n.props.label === "Show code")!
         .props.onPress(),
     );
     expect(tree.root.findAllByType("NativeModal" as never)).toHaveLength(1);
@@ -670,8 +670,8 @@ test.each(["web", "ios", "android"] as const)(
     expect(tree.root.findAllByProps({ testID: "mermaid-popup" })).toHaveLength(
       0,
     );
-    await act(async () => button(tree, "コードを表示").props.onPress());
-    await act(async () => button(tree, "閉じる").props.onPress());
+    await act(async () => button(tree, "Show code").props.onPress());
+    await act(async () => button(tree, "Close").props.onPress());
     expect(tree.root.findAllByProps({ testID: "mermaid-popup" })).toHaveLength(
       0,
     );
@@ -728,7 +728,7 @@ test("wheel zoom is local, follows the pointer, normalizes wheel units and clean
       .findByProps({ testID: "mermaid-viewport" })
       .findAllByType("View" as never)[1].props.style;
   await act(async () => {
-    for (let n = 0; n < 3; n++) button(tree, "拡大").props.onPress();
+    for (let n = 0; n < 3; n++) button(tree, "Zoom in").props.onPress();
   });
   const before = drawing();
   const event = (deltaY: number, deltaMode = 0) => ({

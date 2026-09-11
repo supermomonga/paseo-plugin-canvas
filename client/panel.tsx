@@ -46,8 +46,8 @@ const readingWidth = 820;
 
 function lockLabel(state: EditState) {
   return state.status === "locked"
-    ? `${state.lock.ownerAgentTitle ?? state.lock.ownerAgentId} が編集中`
-    : "編集ロックなし";
+    ? `Being edited by ${state.lock.ownerAgentTitle ?? state.lock.ownerAgentId}`
+    : "Unlocked";
 }
 
 export function CanvasPanel(props: PluginWorkspacePanelProps) {
@@ -135,18 +135,18 @@ function WorkspaceCanvas({
                 accessibilityRole="header"
                 style={{ ...titleText, color: colors.foreground }}
               >
-                Canvas一覧
+                Canvases
               </Text>
               <View style={{ height: 20, justifyContent: "center" }}>
                 <Text style={{ ...metaText, color: colors.foregroundMuted }}>
                   {list.data
-                    ? `${list.data.items.length}件のCanvas`
-                    : "読み込み中..."}
+                    ? `${list.data.items.length} ${list.data.items.length === 1 ? "canvas" : "canvases"}`
+                    : "Loading…"}
                 </Text>
               </View>
             </View>
             <RefreshButton
-              accessibilityLabel="一覧を再取得"
+              accessibilityLabel="Refresh canvases"
               onRefresh={() => list.refetch()}
             />
           </View>
@@ -155,7 +155,7 @@ function WorkspaceCanvas({
               theme={theme}
               error={list.error}
               stale={!!list.data}
-              subject="一覧"
+              subject="canvases"
             />
           )}
           <ScrollView
@@ -163,13 +163,13 @@ function WorkspaceCanvas({
             contentContainerStyle={{ flexGrow: 1, padding: 8, gap: 4 }}
           >
             {list.isLoading && (
-              <CenteredText theme={theme}>読み込み中...</CenteredText>
+              <CenteredText theme={theme}>Loading…</CenteredText>
             )}
             {list.data?.items.length === 0 && (
               <EmptyState
                 icon={null}
-                title="Canvasはまだありません"
-                description="エージェントに作成を依頼してください"
+                title="No canvases yet"
+                description="Ask an agent to create a canvas"
                 style={{ flex: 1, padding: 16 }}
               />
             )}
@@ -200,7 +200,7 @@ function WorkspaceCanvas({
               onBack={() => setSelected(null)}
             />
           ) : (
-            <CenteredText theme={theme}>Canvasを選択</CenteredText>
+            <CenteredText theme={theme}>Select a canvas</CenteredText>
           )}
         </View>
       )}
@@ -226,7 +226,7 @@ function CanvasRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${title}を開く`}
+      accessibilityLabel={`Open ${title}`}
       accessibilityState={{ selected: active }}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
@@ -322,7 +322,7 @@ function CanvasDetail({
         {singlePane && (
           <ToolbarButton
             icon="ArrowLeft"
-            accessibilityLabel="Canvas一覧に戻る"
+            accessibilityLabel="Back to canvases"
             onPress={onBack}
           />
         )}
@@ -347,8 +347,8 @@ function CanvasDetail({
                 <Badge
                   label={
                     canvas.editState.status === "locked"
-                      ? "編集中"
-                      : "ロックなし"
+                      ? "Editing"
+                      : "Unlocked"
                   }
                   variant="neutral"
                   styleVariant="outline"
@@ -381,12 +381,12 @@ function CanvasDetail({
         </View>
         <ToolbarButton
           icon="Info"
-          label="詳細"
+          label="Details"
           disabled={!canvas}
           onPress={() => setDetailsOpen(true)}
         />
         <RefreshButton
-          accessibilityLabel="本文を再取得"
+          accessibilityLabel="Refresh content"
           disabled={missing}
           onRefresh={() => detail.refetch()}
         />
@@ -408,8 +408,8 @@ function CanvasDetail({
             <View style={{ flex: 1, maxWidth: 260, minWidth: 0 }}>
               <Tabs
                 tabs={[
-                  { id: "preview", label: "プレビュー", icon: "Eye" },
-                  { id: "source", label: "コード", icon: "Code" },
+                  { id: "preview", label: "Preview", icon: "Eye" },
+                  { id: "source", label: "Code", icon: "Code" },
                 ]}
                 activeTab={mode}
                 onTabChange={(id) => setMode(id as "preview" | "source")}
@@ -419,15 +419,15 @@ function CanvasDetail({
             </View>
             <ToolbarButton
               icon="Copy"
-              label="コピー"
+              label="Copy"
               size="md"
-              accessibilityLabel="本文をコピー"
+              accessibilityLabel="Copy content"
               onPress={async () => {
                 try {
                   await copyText(canvas.content);
-                  toast.show("本文をコピーしました");
+                  toast.show("Content copied");
                 } catch {
-                  toast.error("本文をコピーできませんでした");
+                  toast.error("Unable to copy content");
                 }
               }}
             />
@@ -437,7 +437,7 @@ function CanvasDetail({
         )}
       </View>
       {missing ? (
-        <CenteredText theme={theme}>このCanvasは削除されました</CenteredText>
+        <CenteredText theme={theme}>This canvas has been deleted</CenteredText>
       ) : (
         <>
           {detail.error && (
@@ -445,11 +445,11 @@ function CanvasDetail({
               theme={theme}
               error={detail.error}
               stale={!!canvas}
-              subject="本文"
+              subject="content"
             />
           )}
           {detail.isLoading && (
-            <CenteredText theme={theme}>読み込み中...</CenteredText>
+            <CenteredText theme={theme}>Loading…</CenteredText>
           )}
           {canvas && (
             <ScrollView
@@ -528,22 +528,22 @@ function CanvasDetails({
 }) {
   const { isCompact } = usePluginTheme();
   const fields: [string, string | number][] = [
-    ["タイトル", canvas.title],
+    ["Title", canvas.title],
     ["Canvas ID", canvas.canvasId],
-    ["リビジョン", canvas.revision],
+    ["Revision", canvas.revision],
   ];
   if (canvas.editState.status === "locked") {
     const lock = canvas.editState.lock;
     fields.push(
-      ["編集中のエージェント", lock.ownerAgentTitle ?? lock.ownerAgentId],
-      ["エージェントID", lock.ownerAgentId],
-      ["ロック取得", lock.acquiredAt],
-      ["最終延長", lock.renewedAt],
-      ["有効期限", lock.expiresAt],
+      ["Editing agent", lock.ownerAgentTitle ?? lock.ownerAgentId],
+      ["Agent ID", lock.ownerAgentId],
+      ["Lock acquired", lock.acquiredAt],
+      ["Last renewed", lock.renewedAt],
+      ["Expires", lock.expiresAt],
     );
   }
   return (
-    <Modal title="Canvasの詳細" open={open} onOpenChange={onOpenChange}>
+    <Modal title="Canvas details" open={open} onOpenChange={onOpenChange}>
       <Modal.Content>
         {fields.map(([label, value]) => (
           <KeyValue
@@ -614,12 +614,12 @@ function ReadError({
       }}
     >
       <Text style={{ color: theme.colors.statusDanger, fontSize: 12 }}>
-        {subject}を取得できませんでした
+        Unable to load {subject}
       </Text>
       <Text style={{ ...metaText, color: theme.colors.foregroundMuted }}>
         {stale
-          ? "表示は最後に取得した内容です。再取得してください"
-          : "再取得してください"}
+          ? "Showing the last loaded content. Please refresh."
+          : "Please refresh."}
       </Text>
       <Text
         selectable

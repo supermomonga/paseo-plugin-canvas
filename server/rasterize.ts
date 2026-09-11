@@ -24,12 +24,12 @@ export async function rasterize(
       renderer.height > 8192 ||
       renderer.width * renderer.height > 16_000_000
     )
-      throw new Error("数式が表示サイズの上限を超えています");
+      throw new Error("The expression exceeds the maximum display size");
     const png = renderer.render();
     try {
       const uri = `data:image/png;base64,${Buffer.from(png.asPng()).toString("base64")}`;
       if (uri.length > 8_000_000)
-        throw new Error("描画結果が8 MBを超えています");
+        throw new Error("The rendered image exceeds 8 MB");
       return { uri, width: png.width / 2, height: png.height / 2 };
     } finally {
       png.free();

@@ -72,7 +72,7 @@ export function MermaidPopup({
             >
               {title}
             </Text>
-            <Button label="閉じる" icon="X" size="sm" onPress={onClose} />
+            <Button label="Close" icon="X" size="sm" onPress={onClose} />
           </View>
           <View
             testID="mermaid-popup-body"

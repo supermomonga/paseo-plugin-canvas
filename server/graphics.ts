@@ -16,14 +16,14 @@ export class GraphicsRenderer {
   private cacheBytes = 0;
   async render(input: GraphicInput): Promise<GraphicImage> {
     graphicInputSchema.parse(input);
-    if (this.closed) throw new Error("描画サービスは終了しました");
+    if (this.closed) throw new Error("The rendering service has shut down");
     const key = createHash("sha256")
       .update(JSON.stringify(input))
       .digest("hex");
     const cached = this.cache.get(key);
     if (cached) return cached;
     if (this.pending >= 32)
-      throw new Error("数式の描画が混み合っています。再試行してください");
+      throw new Error("The math rendering queue is full. Please try again.");
     this.pending++;
     const result = this.queue.then(async () => {
       const existing = this.cache.get(key);

@@ -27,7 +27,7 @@ test("large diagrams fail before unbounded native view allocation", () => {
   const source =
     "flowchart LR\n" +
     Array.from({ length: 201 }, (_, n) => `A${n}`).join("\n");
-  expect(() => diagramModel(source)).toThrow("200ノード");
+  expect(() => diagramModel(source)).toThrow("200 nodes");
   expect(() => diagramModel("x".repeat(50_001))).toThrow("50,000");
 });
 

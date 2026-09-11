@@ -29,7 +29,7 @@ export function Mermaid({
       return {
         model: null,
         error:
-          error instanceof Error ? error.message : "図を解析できませんでした。",
+          error instanceof Error ? error.message : "Unable to parse the diagram.",
       };
     }
   }, [source]);
@@ -66,7 +66,7 @@ export function Mermaid({
             }}
           >
             <Button
-              label="コードを表示"
+              label="Show code"
               icon="Code"
               size="sm"
               onPress={showCode}
@@ -80,7 +80,7 @@ export function Mermaid({
                 lineHeight: 20,
               }}
             >
-              このMermaid図は表示できません
+              Unable to display this Mermaid diagram
             </Text>
             <Text
               selectable
@@ -97,7 +97,7 @@ export function Mermaid({
       )}
       {modal !== null && (
         <MermaidPopup
-          title={modal === "diagram" ? "Mermaid図" : "Mermaidのコード"}
+          title={modal === "diagram" ? "Mermaid diagram" : "Mermaid code"}
           theme={theme}
           onClose={() => setModal(null)}
         >
@@ -353,7 +353,7 @@ export function DiagramViewport({
         }}
       >
         <Button
-          label="縮小"
+          label="Zoom out"
           icon="ZoomOut"
           size="sm"
           disabled={transform.scale <= minimum + 0.0001}
@@ -361,7 +361,7 @@ export function DiagramViewport({
           onPress={() => zoom(1 / 1.25)}
         />
         <Text
-          accessibilityLabel={`倍率 ${Math.round(transform.scale * 100)}パーセント`}
+          accessibilityLabel={`Zoom ${Math.round(transform.scale * 100)} percent`}
           style={{
             color: theme.colors.foregroundMuted,
             minWidth: 42,
@@ -373,7 +373,7 @@ export function DiagramViewport({
           {Math.round(transform.scale * 100)}%
         </Text>
         <Button
-          label="拡大"
+          label="Zoom in"
           icon="ZoomIn"
           size="sm"
           disabled={transform.scale >= 4}
@@ -381,7 +381,7 @@ export function DiagramViewport({
           onPress={() => zoom(1.25)}
         />
         <Button
-          label="全体を収める"
+          label="Fit to view"
           icon="Scan"
           size="sm"
 
@@ -389,7 +389,7 @@ export function DiagramViewport({
         />
         {onPopup && (
           <Button
-            label="ポップアップ"
+            label="Pop out"
             icon="Maximize2"
             size="sm"
             onPress={onPopup}
@@ -398,7 +398,7 @@ export function DiagramViewport({
         {onShowCode && (
           <View style={{ marginLeft: "auto" }}>
             <Button
-              label="コードを表示"
+              label="Show code"
               icon="Code"
               size="sm"
               onPress={onShowCode}
@@ -411,8 +411,8 @@ export function DiagramViewport({
         testID="mermaid-viewport"
         accessibilityLabel={
           Platform.OS === "web"
-            ? "Mermaid図。ホイールまたは2本指で拡大縮小し、拡大後はドラッグで移動できます。"
-            : "Mermaid図。2本指で拡大縮小し、拡大後はドラッグで移動できます。"
+            ? "Mermaid diagram. Scroll or pinch to zoom, then drag to pan."
+            : "Mermaid diagram. Pinch to zoom, then drag to pan."
         }
         pointerEvents="box-only"
         {...responder.panHandlers}
@@ -457,8 +457,8 @@ export function DiagramViewport({
         }}
       >
         {Platform.OS === "web"
-          ? "ホイールまたは2本指で拡大縮小 · ドラッグで移動"
-          : "2本指で拡大縮小 · 拡大後はドラッグで移動"}
+          ? "Scroll or pinch to zoom · Drag to pan"
+          : "Pinch to zoom · Drag to pan when zoomed in"}
       </Text>
     </View>
   );

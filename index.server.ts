@@ -27,7 +27,7 @@ export default function contribute(server: PluginServerContext) {
     const workspace = paseo.workspaces.ref(workspaceId);
     await workspace.refresh();
     if (!workspace.directory)
-      throw new Error("ワークスペースのディレクトリが見つかりません");
+      throw new Error("Workspace directory not found");
     return workspaceImage(workspace.directory, src);
   });
   const ready = storageDirectory().then(async (directory) => {

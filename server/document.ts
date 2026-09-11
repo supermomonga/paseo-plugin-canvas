@@ -91,8 +91,8 @@ const processor = unified()
   .use(extensions)
   .use(remarkRehype, {
     allowDangerousHtml: true,
-    footnoteLabel: "脚注",
-    footnoteBackLabel: "本文へ戻る",
+    footnoteLabel: "Footnotes",
+    footnoteBackLabel: "Back to content",
   })
   .use(rehypeRaw)
   .use(restrictRawHtml)

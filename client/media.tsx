@@ -34,21 +34,21 @@ export function Graphic({
             color: theme.colors.statusDanger,
             textDecorationLine: "underline",
           }}
-          accessibilityLabel={`数式の描画に失敗。再試行: ${input.source}`}
+          accessibilityLabel={`Failed to render math. Retry: ${input.source}`}
         >
-          数式の描画に失敗（再試行）
+          Failed to render math (retry)
         </Text>
       );
     if (!image)
       return (
         <Text style={{ color: theme.colors.foregroundMuted }}>
-          数式を描画中…
+          Rendering math…
         </Text>
       );
     return (
       <Image
         source={{ uri: image.uri }}
-        accessibilityLabel={`数式: ${input.source}`}
+        accessibilityLabel={`Math: ${input.source}`}
         style={{
           width: Math.min(image.width, width),
           height: image.height * Math.min(1, width / image.width),
@@ -62,7 +62,7 @@ export function Graphic({
         <ScrollView horizontal>
           <Image
             source={{ uri: image.uri }}
-            accessibilityLabel={`数式: ${input.source}`}
+            accessibilityLabel={`Math: ${input.source}`}
             style={{ width: image.width, height: image.height }}
           />
         </ScrollView>
@@ -76,15 +76,15 @@ export function Graphic({
           }}
         >
           {result.error
-            ? `描画できませんでした: ${result.error.message}`
-            : "描画中…"}
+            ? `Failed to render: ${result.error.message}`
+            : "Rendering…"}
         </Text>
       )}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Button
           variant="secondary"
           size="sm"
-          label="記法を表示"
+          label="Show source"
           icon="Code"
           onPress={() => setOpen(true)}
         />
@@ -92,7 +92,7 @@ export function Graphic({
           <Button
             variant="secondary"
             size="sm"
-            label="再試行"
+            label="Retry"
             icon="RefreshCw"
             onPress={() => {
               void result.refetch();
@@ -100,7 +100,7 @@ export function Graphic({
           />
         )}
       </View>
-      <Modal title={"数式の記法"} open={open} onOpenChange={setOpen}>
+      <Modal title={"Math source"} open={open} onOpenChange={setOpen}>
         <Modal.Content>
           <CodeBlock code={input.source} language={"latex"} copyable={false} />
         </Modal.Content>
@@ -183,12 +183,12 @@ export function DocumentImage({
           color: theme.colors.statusDanger,
           textDecorationLine: "underline",
         }}
-      >{`画像を表示できません: ${alt || src}（再試行）`}</Text>
+      >{`Unable to display image: ${alt || src} (retry)`}</Text>
     );
   if (!uri || !size || size.uri !== uri || size.attempt !== attempt)
     return (
       <Text style={{ color: theme.colors.foregroundMuted }}>
-        画像を読み込み中…
+        Loading image…
       </Text>
     );
   const scale = Math.min(1, width / size.width);
@@ -196,7 +196,7 @@ export function DocumentImage({
     <Image
       key={`${src}:${attempt}`}
       source={{ uri }}
-      accessibilityLabel={alt || "画像"}
+      accessibilityLabel={alt || "Image"}
       resizeMode="contain"
       onError={() => setFailed({ uri, attempt })}
       style={{ width: size.width * scale, height: size.height * scale }}

@@ -123,7 +123,7 @@ export const Modal = Object.assign(
                     borderRadius: 6,
                   }}
                 >
-                  閉じる
+                  Close
                 </Text>
               </Pressable>
             </View>
