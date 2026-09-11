@@ -43,13 +43,44 @@ export async function recipients(
 ) {
   const candidates = sessions.eligible(workspaceId);
   const output = [];
+  const catalogs = new Map<
+    string,
+    Awaited<ReturnType<Paseo["providers"]["snapshot"]>>
+  >();
   for (const candidate of candidates) {
     const agent = paseo.agents.ref(candidate.id);
     await agent.refresh();
     if (agent.workspaceId !== workspaceId || agent.archivedAt) continue;
+    const current = agent.current();
+    if (!current)
+      throw new CanvasError(
+        "RECIPIENT_UNAVAILABLE",
+        "Unable to load session details",
+      );
+    // The tab title lives in the current Paseo snapshot. The MCP binding may
+    // predate its first prompt or a rename, so it is not a display-name source.
+    let catalog = catalogs.get(current.cwd);
+    if (!catalog) {
+      catalog = await paseo.providers.snapshot({ cwd: current.cwd });
+      catalogs.set(current.cwd, catalog);
+    }
+    const provider = catalog.entries.find(
+      (entry) => entry.provider === current.provider,
+    );
+    const modelId = current.model;
+    const model =
+      modelId === null
+        ? undefined
+        : provider?.models?.find(
+            (entry) => entry.id === modelId || entry.aliases?.includes(modelId),
+          );
+    const title =
+      current.title?.trim().replace(/\s+/g, " ") || "Untitled session";
+    const providerName = provider?.label ?? current.provider;
+    const modelName = model?.label ?? current.model ?? "Model not reported";
     output.push({
       id: candidate.id,
-      title: candidate.title ?? candidate.id,
+      title: `${title} · ${providerName} / ${modelName}`,
       running: !!agent.activeTurn,
       blocked: !!agent.pendingPermissions?.length,
     });

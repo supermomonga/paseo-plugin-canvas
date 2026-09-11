@@ -127,7 +127,7 @@ Title-only updates diagnose the retained content. Failed authorization, locking,
 
 Select text in Preview or Code on desktop, then choose **Add comment**. On mobile, enable **Review** to select a paragraph, heading, list item, table cell or diagram; in Code, select the first and last line. Open **Comments** to read threads and move to their targets. Wide panels show a comment rail; narrow panels use a modal sheet.
 
-Save comments first, select the threads to send, and choose an agent session. Saving a comment or reply does not send a prompt. Only sessions in the same workspace with active Canvas MCP are offered. Sending to a running agent can interrupt it; pending permissions must be handled in Paseo first.
+Save comments first, select the threads to send, and choose an agent session. Saving a comment or reply does not send a prompt. Only sessions in the same workspace with active Canvas MCP are offered. Choices show the current Paseo tab title followed by the provider and model display names, including custom providers. Use **Refresh sessions** to pick up renamed sessions or model changes. Sending to a running agent can interrupt it; pending permissions must be handled in Paseo first.
 
 Agents ask questions and report changes with `canvas.review.reply`; users **Resolve** or **Reopen** threads. Unsent messages can be edited or deleted. Once a request is sending, accepted or has an unknown result, corrections are made as new replies. Existing document locks continue to govern edits.
 

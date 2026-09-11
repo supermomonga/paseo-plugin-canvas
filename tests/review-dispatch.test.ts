@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { CanvasStore } from "../server/store";
 import { Sessions } from "../server/sessions";
-import { dispatchReview, retryDispatch } from "../server/review-dispatch";
+import {
+  dispatchReview,
+  retryDispatch,
+  recipients,
+} from "../server/review-dispatch";
 let store: CanvasStore,
   sessions: Sessions,
   root: string,
@@ -115,4 +119,104 @@ test("a lost send response is unknown and is only retried explicitly with the sa
   });
   expect(next.attempts.map((a) => a.status)).toEqual(["unknown", "accepted"]);
   expect(agent.send.mock.calls[1][1]).toEqual({ messageId: first.id });
+});
+
+test("recipient labels use refreshed tab titles and provider/model display names, not cached bindings or agent IDs", async () => {
+  await sessions.title(actor.agentId, "Old cached name");
+  const current = {
+    cwd: "/workspace",
+    title: "古いタブ名",
+    provider: "custom-codex",
+    model: "fast",
+  };
+  const { agent, paseo } = sdk();
+  Object.assign(agent, { current: () => current });
+  agent.refresh.mockImplementation(async () => {
+    current.title = "  Canvasレビューを改善する\n仕様を確認  ";
+  });
+  const snapshot = vi.fn(async () => ({
+    entries: [
+      {
+        provider: "custom-codex",
+        label: "Team Codex",
+        models: [{ id: "gpt-5.4", aliases: ["fast"], label: "GPT-5.4" }],
+      },
+    ],
+  }));
+  Object.assign(paseo, { providers: { snapshot } });
+  const options = await recipients(sessions, paseo, "workspace");
+  expect(options).toEqual([
+    {
+      id: actor.agentId,
+      title: "Canvasレビューを改善する 仕様を確認 · Team Codex / GPT-5.4",
+      running: false,
+      blocked: false,
+    },
+  ]);
+  expect(snapshot).toHaveBeenCalledWith({ cwd: "/workspace" });
+  expect(agent.send).not.toHaveBeenCalled();
+});
+
+test("unnamed sessions and unreported models have explicit labels without guessing the default model", async () => {
+  const { agent, paseo } = sdk();
+  const current = {
+    cwd: "/workspace",
+    title: null,
+    provider: "claude",
+    model: null,
+  };
+  Object.assign(agent, { current: () => current });
+  Object.assign(paseo, {
+    providers: {
+      snapshot: vi.fn(async () => ({
+        entries: [
+          {
+            provider: "claude",
+            label: "Claude Code",
+            models: [
+              { id: "default", label: "Default Sonnet", isDefault: true },
+            ],
+          },
+        ],
+      })),
+    },
+  });
+  expect((await recipients(sessions, paseo, "workspace"))[0].title).toBe(
+    "Untitled session · Claude Code / Model not reported",
+  );
+});
+
+test("recipient discovery shares a cwd catalog and preserves distinct send IDs", async () => {
+  const token = sessions.register();
+  await sessions.activate("agent-b", "workspace", token);
+  const { agent, paseo } = sdk();
+  const ref = vi.fn((id: string) => ({
+    ...agent,
+    current: () => ({
+      cwd: "/workspace",
+      title: id === "agent-a" ? "Plan" : "Implement",
+      provider: "codex",
+      model: "new-model",
+    }),
+  }));
+  const snapshot = vi.fn(async () => ({
+    entries: [{ provider: "codex", label: "Codex", models: [] }],
+  }));
+  Object.assign(paseo, { agents: { ref }, providers: { snapshot } });
+  expect(await recipients(sessions, paseo, "workspace")).toEqual([
+    {
+      id: "agent-a",
+      title: "Plan · Codex / new-model",
+      running: false,
+      blocked: false,
+    },
+    {
+      id: "agent-b",
+      title: "Implement · Codex / new-model",
+      running: false,
+      blocked: false,
+    },
+  ]);
+  expect(snapshot).toHaveBeenCalledOnce();
+  expect(await recipients(sessions, paseo, "other-workspace")).toEqual([]);
 });
