@@ -8,6 +8,8 @@ links:
   kind: amends
 - target: 5
   kind: amends
+- target: 10
+  kind: amendedby
 ---
 
 # Persist source-anchored reviews and explicitly dispatch agent requests

@@ -1,10 +1,11 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, expect, test, vi } from "vitest";
-vi.mock("../client/web", () => ({
-  observeTextSelection: () => () => {},
-  registerSelectionLeaf: () => {},
-}));
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { CanvasStore } from "../server/store";
+import { Modal as SdkModal } from "@getpaseo/plugin/client/react-native";
 vi.mock("@getpaseo/plugin/client/ui", () => ({ SettingsSelect: () => null }));
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
@@ -12,7 +13,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
 }));
 vi.mock("../client/updates", () => ({ useCanvasUpdates: () => null }));
 const reviewCalls = vi.hoisted(() =>
-  vi.fn(async (_name: string, _input: unknown) => undefined),
+  vi.fn(async (_name: string, _input: unknown): Promise<unknown> => undefined),
 );
 const nativePlatform = vi.hoisted(() => ({ OS: "web" }));
 const lifecycle = vi.hoisted(() => ({
@@ -73,6 +74,7 @@ vi.mock("@getpaseo/plugin/client/react-native", () => ({
   useToast: () => ({ show: host.show, error: host.error }),
 }));
 const queries = vi.hoisted(() => ({
+  review: undefined as import("../shared/review").ReviewResult | undefined,
   inputs: vi.fn(),
   list: {
     data: { items: [] as unknown[] } as { items: unknown[] } | undefined,
@@ -100,7 +102,8 @@ vi.mock("paseo-plugin-helper/client", async (importOriginal) => ({
     queries.inputs(contract.name, input);
     if (contract.name.startsWith("canvas.review."))
       return {
-        data: undefined,
+        data:
+          contract.name === "canvas.review.get" ? queries.review : undefined,
         error: null,
         refetch: vi.fn(),
         isFetching: false,
@@ -129,6 +132,7 @@ initClientHelpers({
 import { parseDocument } from "../server/document";
 import { Markdown, safeLink } from "../client/markdown";
 import { ReviewDocument } from "../client/review";
+import { reviewTargets, sourceRange } from "../shared/review-targets";
 import type { Canvas } from "../shared/contracts";
 import { CanvasPanel } from "../client/panel";
 import contribute from "../index.client";
@@ -195,6 +199,7 @@ const summary = {
 beforeEach(() => {
   vi.clearAllMocks();
   nativePlatform.OS = "web";
+  queries.review = undefined;
   queries.list.data = {
     items: [summary, { ...summary, canvasId: "canvas-b", title: "メモ" }],
   };
@@ -294,6 +299,29 @@ test("narrow desktop pane switches to list/detail navigation when the split cann
   expect(view.root.findAllByType(Tabs)).toHaveLength(0);
   await openCanvas(view);
   expect(button(view, "Back to canvases")).toBeDefined();
+  await act(async () => view.unmount());
+});
+
+test("a zero-width hidden tab preserves the automatically displayed document and open comments", async () => {
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(panel(false));
+  });
+  const layout = (width: number) =>
+    view.root
+      .findAllByType("View" as never)
+      .find((item) => item.props.onLayout)!
+      .props.onLayout({ nativeEvent: { layout: { width } } });
+  await act(async () => layout(1200));
+  await act(async () => button(view, "Comments").props.onPress());
+  const document = view.root.findByType(ReviewDocument);
+  const comments = view.root.findByProps({ testID: "review-comments" });
+  await act(async () => layout(0));
+  expect(view.root.findByType(ReviewDocument)).toBe(document);
+  expect(view.root.findByProps({ testID: "review-comments" })).toBe(comments);
+  await act(async () => layout(1200));
+  expect(view.root.findByType(ReviewDocument)).toBe(document);
+  expect(view.root.findByProps({ testID: "review-comments" })).toBe(comments);
   await act(async () => view.unmount());
 });
 
@@ -1176,97 +1204,287 @@ function reviewView(canvas: Canvas, mode: "preview" | "source") {
     </PluginThemeProvider>
   );
 }
-test.each([false, true])(
-  "native line selection preserves UTF-16 source and unsaved drafts across updates (reverse=%s)",
-  async (reverse) => {
-    nativePlatform.OS = "android";
-    const canvas = reviewCanvas("first\n日本語 🚀\nthird\n");
+
+test.each(["web", "android", "ios"])(
+  "%s selects multiple whole elements and writes one comment with the same targets in Preview and Code",
+  async (platform) => {
+    nativePlatform.OS = platform;
+    const canvas = reviewCanvas(
+      "# Title\n\nFirst paragraph.\n\nBetween.\n\n| A | B |\n|---|---|\n| X | Y |\n\n```mermaid\nflowchart LR\nA-->B\n```\n\n- one\n- two\n",
+    );
+    const targets = reviewTargets(parseDocument(canvas.content));
+    const id = (index: number) => {
+      const range = sourceRange(targets[index])!;
+      return `review-target-${range.start}-${range.end}`;
+    };
     let view!: ReactTestRenderer;
     await act(async () => {
-      view = create(reviewView(canvas, "source"));
+      view = create(reviewView(canvas, "preview"));
     });
-    await act(async () =>
-      button(view, reverse ? "Select line 3" : "Select line 2").props.onPress(),
-    );
-    await act(async () =>
-      button(view, reverse ? "Select line 2" : "Select line 3").props.onPress(),
-    );
-    await act(async () => button(view, "Add comment").props.onPress());
-    expect(JSON.stringify(view.toJSON())).toContain("日本語 🚀\\nthird\\n");
+    const target = (index: number) =>
+      view.root.findByProps({ testID: id(index) });
+    expect(target(1).props.onPress).toBeUndefined();
+    expect(target(1).props.accessible).toBe(false);
+    expect(button(view, "Comment")).toBeUndefined();
+    expect(button(view, "Select target")).toBeUndefined();
+    await act(async () => button(view, "Select elements").props.onPress());
+    expect(
+      view.root.findAllByProps({ accessibilityRole: "checkbox" }),
+    ).toHaveLength(6);
+    for (const index of [4, 1, 3])
+      await act(async () => target(index).props.onPress());
+    expect(target(1).props["aria-checked"]).toBe(true);
+    expect(target(1).props.style.backgroundColor).toBe(colors.surface2);
+    expect(target(1).props.style.borderColor).toBe(colors.accent);
+    expect(target(2).props["aria-checked"]).toBe(false);
+    expect(
+      target(4).findAllByProps({
+        pointerEvents: "none",
+        importantForAccessibility: "no-hide-descendants",
+      }),
+    ).toHaveLength(1);
+    expect(button(view, "Comment").props.icon).toBe("MessageSquare");
+    expect(button(view, "Comment").props.label).toBe("Comment");
+    expect(
+      view.root.findByProps({ testID: "review-comment-action" }).props.style,
+    ).toMatchObject({ position: "absolute", right: 16, bottom: 16 });
+    await act(async () => target(3).props.onPress());
+    expect(target(3).props["aria-checked"]).toBe(false);
+    await act(async () => view.update(reviewView(canvas, "source")));
+    expect(target(1).props["aria-checked"]).toBe(true);
+    expect(target(4).props["aria-checked"]).toBe(true);
+    expect(
+      view.root.findAllByProps({ accessibilityRole: "checkbox" }),
+    ).toHaveLength(6);
+    await act(async () => target(3).props.onPress());
+    await act(async () => button(view, "Comment").props.onPress());
+    expect(
+      view.root.findAllByProps({ testID: "review-comment-action" }),
+    ).toHaveLength(0);
     const input = view.root
       .findAllByType("TextInput" as never)
-      .find((n) => n.props.placeholder === "Describe the change you want")!;
-    await act(async () => input.props.onChangeText("Keep this draft"));
+      .find(
+        (node) => node.props.placeholder === "Describe the change you want",
+      )!;
     await act(async () =>
-      view.update(
-        reviewView(
-          { ...canvas, revision: 2, content: "prefix\n" + canvas.content },
-          "source",
-        ),
-      ),
+      input.props.onChangeText("One comment for all selected elements"),
     );
-    expect(JSON.stringify(view.toJSON())).toContain("Keep this draft");
+    // Switching views and resuming selection retains the unsaved comment.
+    await act(async () => button(view, "Change selection").props.onPress());
+    await act(async () => view.update(reviewView(canvas, "preview")));
+    expect(target(3).props["aria-checked"]).toBe(true);
+    await act(async () => button(view, "Comment").props.onPress());
+    reviewCalls.mockResolvedValueOnce({});
     await act(async () => button(view, "Save comment").props.onPress());
-    expect(reviewCalls).toHaveBeenCalledWith(
-      "canvas.review.mutate",
-      expect.objectContaining({
+    expect(reviewCalls).toHaveBeenCalledTimes(1);
+    const mutation = (
+      reviewCalls.mock.calls[0][1] as {
         mutation: {
-          action: "create",
-          body: "Keep this draft",
-          selection: {
-            documentRevision: 1,
-            kind: "lines",
-            start: 6,
-            end: canvas.content.length,
-            selectedText: "日本語 🚀\nthird\n",
-          },
-        },
-      }),
-    );
+          selection: { ranges: { start: number; end: number }[] };
+          body: string;
+        };
+      }
+    ).mutation;
+    expect(mutation.body).toBe("One comment for all selected elements");
+    expect(
+      mutation.selection.ranges.map(({ start, end }) => ({ start, end })),
+    ).toEqual([1, 3, 4].map((index) => sourceRange(targets[index])));
+    expect(button(view, "Save comment")).toBeUndefined();
     await act(async () => view.unmount());
   },
 );
-test("native preview enters explicit selection mode and saves a whole block", async () => {
-  nativePlatform.OS = "android";
-  const canvas = reviewCanvas("# Title\n\n日本語 **strong**\n");
+
+test("deselecting all or cancelling removes the floating action; updates require fresh targets and preserve the draft", async () => {
+  const canvas = reviewCanvas("First.\n\nSecond.\n");
   let view!: ReactTestRenderer;
   await act(async () => {
     view = create(reviewView(canvas, "preview"));
   });
-  expect(
-    view.root.findAllByProps({ accessibilityLabel: "Select p for review" }),
-  ).toHaveLength(0);
-  await act(async () => button(view, "Review").props.onPress());
-  await act(async () =>
+  const target = () => view.root.findByProps({ testID: "review-target-0-6" });
+  await act(async () => button(view, "Select elements").props.onPress());
+  await act(async () => target().props.onPress());
+  await act(async () => target().props.onPress());
+  expect(button(view, "Comment")).toBeUndefined();
+  await act(async () => target().props.onPress());
+  await act(async () => button(view, "Cancel selection").props.onPress());
+  expect(button(view, "Comment")).toBeUndefined();
+  await act(async () => button(view, "Select elements").props.onPress());
+  await act(async () => target().props.onPress());
+  await act(async () => button(view, "Comment").props.onPress());
+  const input = () =>
     view.root
-      .findByProps({ accessibilityLabel: "Select p for review" })
-      .props.onPress(),
+      .findAllByType("TextInput" as never)
+      .find(
+        (node) => node.props.placeholder === "Describe the change you want",
+      )!;
+  await act(async () => input().props.onChangeText("Keep my draft"));
+  await act(async () =>
+    view.update(reviewView({ ...canvas, revision: 2 }, "preview")),
   );
-  await act(async () => button(view, "Add comment").props.onPress());
-  const input = view.root
-    .findAllByType("TextInput" as never)
-    .find((n) => n.props.placeholder === "Describe the change you want")!;
-  await act(async () => input.props.onChangeText("Clarify the paragraph"));
-  await act(async () => button(view, "Save comment").props.onPress());
-  expect(reviewCalls).toHaveBeenCalledWith(
-    "canvas.review.mutate",
-    expect.objectContaining({
-      mutation: {
-        action: "create",
-        body: "Clarify the paragraph",
-        selection: {
-          documentRevision: 1,
-          kind: "block",
-          start: 9,
-          end: 23,
-          selectedText: "日本語 strong",
-        },
-      },
-    }),
-  );
+  expect(button(view, "Save comment").props.disabled).toBe(true);
+  await act(async () => button(view, "Change selection").props.onPress());
+  expect(button(view, "Comment")).toBeUndefined();
+  expect(target().props["aria-checked"]).toBe(false);
+  await act(async () => target().props.onPress());
+  await act(async () => button(view, "Comment").props.onPress());
+  expect(input().props.value).toBe("Keep my draft");
+  expect(button(view, "Save comment").props.disabled).toBe(false);
   await act(async () => view.unmount());
 });
-
+test.each(["web", "android", "ios"])(
+  "%s comments stay inline and retain drafts, edits and targets across resize and hidden tabs",
+  async (platform) => {
+    nativePlatform.OS = platform;
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "canvas-review-layout-"),
+    );
+    const store = await CanvasStore.open(directory);
+    let view: ReactTestRenderer | undefined;
+    try {
+      const actor = {
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        sessionId: "session-a",
+        title: "Test agent",
+      };
+      const created = await store.create(actor, "Review", "First paragraph.\n");
+      const { canvas } = await store.get(actor.workspaceId, created.canvasId);
+      const selection = {
+        documentRevision: canvas.revision,
+        ranges: [
+          {
+            kind: "block" as const,
+            start: 0,
+            end: 16,
+            selectedText: "First paragraph.",
+          },
+        ],
+      };
+      queries.review = await store.reviews.mutate(
+        actor.workspaceId,
+        canvas.canvasId,
+        {
+          action: "create",
+          selection,
+          body: "Original comment",
+        },
+      );
+      const thread = Object.values(queries.review.state.threads)[0];
+      await act(async () => {
+        view = create(reviewView(canvas, "preview"));
+      });
+      const tree = view!;
+      const resize = async (width: number) =>
+        act(async () => {
+          tree.root.findByProps({ testID: "review-document" }).props.onLayout({
+            nativeEvent: { layout: { width } },
+          });
+        });
+      const panes = () => tree.root.findByProps({ testID: "review-panes" });
+      const comments = () =>
+        tree.root.findByProps({ testID: "review-comments" });
+      // No measurement yet: open below the document without a modal.
+      await act(async () => button(tree, "Comments (1)").props.onPress());
+      expect(panes().props.style.flexDirection).toBe("column");
+      expect(tree.root.findAllByType(SdkModal)).toHaveLength(0);
+      await act(async () => button(tree, "Select elements").props.onPress());
+      await act(async () =>
+        tree.root.findByProps({ testID: "review-target-0-16" }).props.onPress(),
+      );
+      await act(async () => button(tree, "Comment").props.onPress());
+      const input = (placeholder: string) =>
+        tree.root
+          .findAllByType("TextInput" as never)
+          .find((node) => node.props.placeholder === placeholder)!;
+      await act(async () =>
+        input("Describe the change you want").props.onChangeText("New draft"),
+      );
+      await act(async () =>
+        input("Reply or clarify the request").props.onChangeText("Reply draft"),
+      );
+      await act(async () => button(tree, "Edit").props.onPress());
+      const editInput = tree.root
+        .findAllByType("TextInput" as never)
+        .find((node) => node.props.value === "Original comment")!;
+      await act(async () => editInput.props.onChangeText("Edited draft"));
+      const originalPanel = comments();
+      const originalReply = input("Reply or clarify the request");
+      for (const [width, direction] of [
+        [1200, "row"],
+        [0, "row"],
+        [1200, "row"],
+        [920, "row"],
+        [919, "column"],
+        [430, "column"],
+        [0, "column"],
+        [1200, "row"],
+        [430, "column"],
+      ] as const) {
+        await resize(width);
+        expect(panes().props.style.flexDirection).toBe(direction);
+        expect(comments()).toBe(originalPanel);
+        expect(input("Reply or clarify the request")).toBe(originalReply);
+        expect(input("Reply or clarify the request").props.value).toBe(
+          "Reply draft",
+        );
+        expect(input("Describe the change you want").props.value).toBe(
+          "New draft",
+        );
+        expect(editInput.props.value).toBe("Edited draft");
+        expect(tree.root.findAllByType(SdkModal)).toHaveLength(0);
+      }
+      await act(async () => button(tree, "Go to target").props.onPress());
+      expect(comments()).toBe(originalPanel);
+      expect(
+        tree.root.findAllByType(Markdown).find((node) => node.props.review)!
+          .props.review.navigate,
+      ).toBe(0);
+      await act(async () => button(tree, "Save reply").props.onPress());
+      await act(async () => button(tree, "Save").props.onPress());
+      await act(async () => button(tree, "Save comment").props.onPress());
+      await act(async () => button(tree, "Resolve").props.onPress());
+      const mutations = reviewCalls.mock.calls.map(
+        ([, input]) => (input as { mutation: unknown }).mutation,
+      );
+      expect(mutations).toEqual([
+        {
+          action: "reply",
+          threadId: thread.id,
+          expectedRevision: thread.revision,
+          body: "Reply draft",
+        },
+        {
+          action: "edit",
+          threadId: thread.id,
+          expectedRevision: thread.revision,
+          messageId: thread.messages[0].id,
+          body: "Edited draft",
+        },
+        { action: "create", selection, body: "New draft" },
+        {
+          action: "status",
+          threadId: thread.id,
+          expectedRevision: thread.revision,
+          resolved: true,
+        },
+      ]);
+      await act(async () => button(tree, "Comments (1)").props.onPress());
+      await resize(1200);
+      await resize(0);
+      await resize(430);
+      expect(
+        tree.root.findAllByProps({ testID: "review-comments" }),
+      ).toHaveLength(0);
+      expect(
+        tree.root.findByProps({ testID: "review-body" }).props.style.flex,
+      ).toBe(1);
+    } finally {
+      if (view) await act(async () => view!.unmount());
+      await store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 test("repeated Go to target opens a details ancestor that the user closed", async () => {
   const source =
     "<details>\n<summary>More</summary>\n\n# Inner\n\nBody\n\n</details>";

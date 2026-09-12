@@ -131,7 +131,7 @@ export class ReviewStore {
   private empty(workspaceId: string, canvasId: string): ReviewState {
     const time = now();
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       workspaceId,
       canvasId,
       revision: 0,
@@ -143,6 +143,12 @@ export class ReviewStore {
     };
   }
   private async load(workspaceId: string, canvasId: string) {
+    return (
+      (await this.readState(workspaceId, canvasId)) ??
+      this.empty(workspaceId, canvasId)
+    );
+  }
+  private async readState(workspaceId: string, canvasId: string) {
     const dir = this.directory(workspaceId, canvasId);
     try {
       await this.directorySafe(dir);
@@ -175,23 +181,24 @@ export class ReviewStore {
     try {
       state = reviewStateSchema.parse(JSON.parse(source));
     } catch {
-      corrupt("Invalid review JSON or unsupported schemaVersion");
+      return null;
     }
     if (state!.workspaceId !== workspaceId || state!.canvasId !== canvasId)
       corrupt("Review identity does not match its directory");
     const snapshots = await this.snapshots(state!);
-    const validateAnchor = (a: ReviewAnchor) => {
-      const source = snapshots[a.documentRevision];
-      if (
-        source === undefined ||
-        !validBoundary(source, a.start) ||
-        !validBoundary(source, a.end) ||
-        a.end <= a.start ||
-        source.slice(a.start, a.end) !== a.sourceText ||
-        !source.slice(0, a.start).endsWith(a.prefix) ||
-        !source.slice(a.end).startsWith(a.suffix)
-      )
-        corrupt("Review anchor does not match its snapshot");
+    const validateAnchor = (anchor: ReviewAnchor) => {
+      const source = snapshots[anchor.documentRevision];
+      for (const a of anchor.ranges) {
+        if (
+          source === undefined ||
+          !validBoundary(source, a.start) ||
+          !validBoundary(source, a.end) ||
+          source.slice(a.start, a.end) !== a.sourceText ||
+          !source.slice(0, a.start).endsWith(a.prefix) ||
+          !source.slice(a.end).startsWith(a.suffix)
+        )
+          corrupt("Review anchor does not match its snapshot");
+      }
     };
     for (const [id, t] of Object.entries(state!.threads)) {
       if (
@@ -282,24 +289,31 @@ export class ReviewStore {
     selectionSchema.parse(selection);
     if (selection.documentRevision !== document.metadata.revision)
       fail("Canvas changed. Keep your comment and select its target again.");
-    if (
-      !validBoundary(document.content, selection.start) ||
-      !validBoundary(document.content, selection.end)
-    )
-      fail("Selection is outside the document or splits a character");
+    const ranges = selection.ranges.map((range) => {
+      if (
+        !validBoundary(document.content, range.start) ||
+        !validBoundary(document.content, range.end)
+      )
+        fail("Selection is outside the document or splits a character");
+      return {
+        ...range,
+        sourceText: document.content.slice(range.start, range.end),
+        prefix: Array.from(document.content.slice(0, range.start))
+          .slice(-48)
+          .join(""),
+        suffix: Array.from(document.content.slice(range.end))
+          .slice(0, 48)
+          .join(""),
+      };
+    });
     return {
-      ...selection,
+      documentRevision: selection.documentRevision,
+      ranges,
       id: randomUUID(),
-      sourceText: document.content.slice(selection.start, selection.end),
-      prefix: Array.from(document.content.slice(0, selection.start))
-        .slice(-48)
-        .join(""),
-      suffix: Array.from(document.content.slice(selection.end))
-        .slice(0, 48)
-        .join(""),
       createdAt: now(),
     };
   }
+
   private thread(state: ReviewState, id: string, revision?: number) {
     const thread = state.threads[id];
     if (!Object.hasOwn(state.threads, id))
@@ -651,7 +665,8 @@ export class ReviewStore {
           continue;
         }
         await this.owner.reviewTransaction(workspace.name, canvas, async () => {
-          const state = await this.load(workspace.name, canvas);
+          const state = await this.readState(workspace.name, canvas);
+          if (state === null) return;
           let changed = false;
           for (const delivery of Object.values(state.deliveries))
             for (const a of delivery.attempts)

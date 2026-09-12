@@ -1,12 +1,33 @@
-import { diffChars } from "diff";
-import type { ReviewAnchor, ReviewProjection } from "../shared/review";
+import { diffChars, type Change } from "diff";
+import type {
+  ReviewAnchor,
+  ReviewAnchorRange,
+  ReviewProjection,
+  ReviewRangeProjection,
+} from "../shared/review";
 
 export function trackAnchor(
   anchor: ReviewAnchor,
   original: string,
   current: string,
 ): ReviewProjection {
-  const outdated = (reason: string): ReviewProjection => ({
+  const options = { timeout: 100, maxEditLength: 10_000 };
+  const changes =
+    original === current ? [] : diffChars(original, current, options);
+  return {
+    ranges: anchor.ranges.map((range) =>
+      trackRange(range, original, current, changes),
+    ),
+  };
+}
+
+function trackRange(
+  anchor: ReviewAnchorRange,
+  original: string,
+  current: string,
+  changes: Change[] | undefined,
+): ReviewRangeProjection {
+  const outdated = (reason: string): ReviewRangeProjection => ({
     start: null,
     end: null,
     reason,
@@ -15,8 +36,6 @@ export function trackAnchor(
     return outdated("The saved selection does not match its snapshot");
   if (original === current)
     return { start: anchor.start, end: anchor.end, reason: null };
-  const options = { timeout: 100, maxEditLength: 10_000 };
-  const changes = diffChars(original, current, options);
   if (!changes) return outdated("Tracking exceeded its computation limit");
   let before = 0,
     after = 0;

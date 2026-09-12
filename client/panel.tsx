@@ -59,7 +59,11 @@ export function CanvasPanel(
   return (
     <View
       style={{ flex: 1, minWidth: 0, minHeight: 0 }}
-      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      onLayout={(event) => {
+        const measuredWidth = event.nativeEvent.layout.width;
+        // A hidden tab must not switch topology and unmount its document.
+        if (measuredWidth > 0) setWidth(measuredWidth);
+      }}
     >
       <PluginThemeProvider
         theme={props.theme}

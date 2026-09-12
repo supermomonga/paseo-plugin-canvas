@@ -7,3 +7,4 @@
 * [7. Refresh canvases through workspace-scoped long polling](0007-refresh-canvases-through-workspace-scoped-long-polling.md)
 * [8. Return rendering diagnostics and open canvases from plugin timeline rows](0008-return-rendering-diagnostics-and-open-canvases-from-plugin-timeline-rows.md)
 * [9. Persist source-anchored reviews and explicitly dispatch agent requests](0009-persist-source-anchored-reviews-and-explicitly-dispatch-agent-requests.md)
+* [10. Select semantic elements across devices and store one review with multiple targets](0010-select-semantic-elements-across-devices-and-store-one-review-with-multiple-targets.md)

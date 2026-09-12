@@ -6,23 +6,45 @@ import { documentSchema } from "./document";
 const revision = z.number().int().safe().nonnegative();
 const date = z.iso.datetime();
 const body = z.string().trim().min(1).max(20_000);
-export const selectionSchema = z
+export const selectionRangeSchema = z
   .object({
-    documentRevision: revision,
-    kind: z.enum(["text", "block", "lines"]),
+    kind: z.literal("block"),
     start: revision,
     end: revision,
     selectedText: z.string().min(1).max(1_000_000),
   })
   .strict()
   .refine((v) => v.end > v.start, "Select a nonempty range");
-export const anchorSchema = selectionSchema.safeExtend({
-  id: idSchema,
+const orderedRanges = (ranges: { start: number; end: number }[]) =>
+  ranges.every((range, i) => i === 0 || ranges[i - 1].end <= range.start);
+export const selectionSchema = z
+  .object({
+    documentRevision: revision,
+    ranges: z
+      .array(selectionRangeSchema)
+      .min(1)
+      .refine(
+        orderedRanges,
+        "Select distinct, nonoverlapping elements in document order",
+      ),
+  })
+  .strict();
+export const anchorRangeSchema = selectionRangeSchema.safeExtend({
   sourceText: z.string(),
   prefix: z.string(),
   suffix: z.string(),
-  createdAt: date,
 });
+export const anchorSchema = z
+  .object({
+    id: idSchema,
+    documentRevision: revision,
+    ranges: z
+      .array(anchorRangeSchema)
+      .min(1)
+      .refine(orderedRanges, "Anchor ranges must be distinct and ordered"),
+    createdAt: date,
+  })
+  .strict();
 export const messageSchema = z
   .object({
     id: idSchema,
@@ -94,7 +116,7 @@ export const deliverySchema = z
   .strict();
 export const reviewStateSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     workspaceId: idSchema,
     canvasId: idSchema,
     revision,
@@ -113,11 +135,16 @@ export const reviewStateSchema = z
     deliveries: z.record(idSchema, deliverySchema),
   })
   .strict();
-export const projectionSchema = z
+export const rangeProjectionSchema = z
   .object({
     start: revision.nullable(),
     end: revision.nullable(),
     reason: z.string().nullable(),
+  })
+  .strict();
+export const projectionSchema = z
+  .object({
+    ranges: z.array(rangeProjectionSchema).min(1),
   })
   .strict();
 export const reviewResultSchema = z.object({
@@ -212,6 +239,8 @@ export const agentReplySchema = z
 export type ReviewState = z.infer<typeof reviewStateSchema>;
 export type ReviewThread = z.infer<typeof threadSchema>;
 export type ReviewMessage = z.infer<typeof messageSchema>;
+export type ReviewAnchorRange = z.infer<typeof anchorRangeSchema>;
+export type ReviewRangeProjection = z.infer<typeof rangeProjectionSchema>;
 export type ReviewAnchor = z.infer<typeof anchorSchema>;
 export type ReviewSelection = z.infer<typeof selectionSchema>;
 export type ReviewMutation = z.infer<typeof reviewMutationSchema>;

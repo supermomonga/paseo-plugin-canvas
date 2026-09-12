@@ -8,6 +8,7 @@ import { textContent, externalLink, type AlertType } from "../shared/document";
 import { DocumentImage, Graphic } from "./media";
 import { Mermaid } from "./mermaid/viewer";
 import { type ReviewBindings, sourceRange } from "./review-bindings";
+import { reviewTargets } from "../shared/review-targets";
 import { tableColumnWidths } from "../shared/table";
 
 export const safeLink = externalLink;
@@ -49,6 +50,7 @@ export function Markdown({
   const [expanded, setExpanded] = useState(new Map<Element, boolean>());
   const [pending, setPending] = useState<string>();
   const colors = theme.colors;
+  const selectableNodes = new Set(reviewTargets(tree));
   const textStyle: TextStyle = {
     color: colors.foreground,
     fontSize: contentFontSize,
@@ -177,19 +179,9 @@ export function Markdown({
         }}
       />
     );
-    return review && !display ? (
-      <Text
-        key={key}
-        onPress={() => review.select(node)}
-        accessibilityRole="button"
-        accessibilityLabel="Select math for review"
-      >
-        {rendered}
-      </Text>
-    ) : (
-      rendered
-    );
+    return rendered;
   }
+
   function inline(
     nodes: RootContent[],
     prefix: string,
@@ -306,18 +298,7 @@ export function Markdown({
               workspaceId={workspaceId}
             />
           );
-          return review && !measuring ? (
-            <Text
-              key={key}
-              onPress={() => review.select(node)}
-              accessibilityRole="button"
-              accessibilityLabel="Select image for review"
-            >
-              {image}
-            </Text>
-          ) : (
-            image
-          );
+          return image;
         }
         case "input":
           return null;
@@ -359,7 +340,7 @@ export function Markdown({
   }
   function block(node: Element, key: string): ReactNode {
     const result = renderBlock(node, key);
-    return review && /^(p|h[1-6]|pre|table)$/.test(node.tagName)
+    return review && selectableNodes.has(node)
       ? review.wrap(node, result, key)
       : result;
   }
@@ -578,9 +559,7 @@ export function Markdown({
                   </View>
                 </View>
               );
-              return review
-                ? review.wrap(item, rendered, `${key}.item${i}`)
-                : rendered;
+              return rendered;
             })}
           </View>
         );
@@ -792,9 +771,6 @@ function MarkdownTable({
                   }
                   role={cell.tagName === "th" ? "columnheader" : "cell"}
                   selectable={!review?.enabled}
-                  onPress={
-                    review?.enabled ? () => review.select(cell) : undefined
-                  }
                   style={{
                     ...cellStyle(cell),
                     width: widths[c],

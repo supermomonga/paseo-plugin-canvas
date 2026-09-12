@@ -32,10 +32,14 @@ beforeEach(async () => {
     action: "create",
     selection: {
       documentRevision: 1,
-      start: 0,
-      end: 5,
-      kind: "text",
-      selectedText: "Hello",
+      ranges: [
+        {
+          start: 0,
+          end: 5,
+          kind: "block",
+          selectedText: "Hello",
+        },
+      ],
     },
     body: "Clarify",
   });

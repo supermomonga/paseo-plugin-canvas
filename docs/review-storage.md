@@ -12,13 +12,13 @@ Reviews are stored on the Paseo daemon host, in the existing platform-specific C
 
 The current document keeps its existing YAML frontmatter plus Markdown format. A snapshot is the exact UTF-8 document body, without frontmatter or newline normalization. Only revisions referenced by a review are captured. Snapshots are immutable.
 
-## State format (schemaVersion 1)
+## State format (schemaVersion 2)
 
 `state.json` is UTF-8 without BOM, formatted with two-space indentation and one trailing newline. It contains:
 
 | Field | Value |
 | --- | --- |
-| `schemaVersion` | `1`; unknown versions are errors |
+| `schemaVersion` | `2`; other versions are ignored |
 | `workspaceId`, `canvasId` | Identity, validated against the containing directories |
 | `revision` | Review-state update counter, initially zero; independent of document revision |
 | `createdAt`, `updatedAt` | UTC ISO 8601 timestamps |
@@ -28,7 +28,9 @@ The current document keeps its existing YAML frontmatter plus Markdown format. A
 
 Each thread contains `id`, `revision`, timestamps, `status`, `assignedAgentId`, `currentRequestId`, `currentAnchorId`, `anchors`, and `messages`. Status is `needs_agent_review`, `needs_user_review`, or `resolved`.
 
-Each anchor contains `id`, `documentRevision`, `kind` (`text`, `block`, or `lines`), `start`, `end`, `selectedText`, `sourceText`, `prefix`, `suffix`, and `createdAt`. Offsets are UTF-16 positions in the body, with an exclusive end. `selectedText` is the visible quote, while `sourceText` is the exact Markdown slice. Context retains up to 48 Unicode code points on either side. Reattachment appends a new anchor and updates `currentAnchorId`; older anchors remain available as history. DOM IDs and rendering trees are not persisted.
+Each anchor contains `id`, `documentRevision`, `ranges`, and `createdAt`. `ranges` is a nonempty array ordered by source position, with no overlap or duplicates. Every range contains `kind: "block"`, `start`, `end`, `selectedText`, `sourceText`, `prefix`, and `suffix`. Offsets are UTF-16 positions in the body, with an exclusive end. `selectedText` is the visible quote, while `sourceText` is the exact Markdown slice. Context retains up to 48 Unicode code points on either side. Unselected content between ranges is not part of the selection. Reattachment appends a new anchor for the complete replacement set and updates `currentAnchorId`; older anchors remain available as history. DOM IDs and rendering trees are not persisted.
+
+Create and reattach RPCs accept `selection: {documentRevision, ranges: [{kind: "block", start, end, selectedText}]}`. One selection creates one thread and one initial message, regardless of how many elements are selected. The unreleased version 1 format is unsupported: there is no compatibility reader or migration. Invalid state is ignored on read and replaced when a new comment is saved.
 
 Each message contains `id`, `revision`, `author`, `kind`, Markdown `body`, timestamps, `requestId`, and `documentRevision`. A user author is `{role: "user"}`; an agent author includes its authenticated agent ID and display name. Message kinds are `comment`, `question`, `explanation`, and `applied`. Request ID and document revision are nullable; applied reports require a saved document revision. User messages are editable/deletable only while no sending, unknown, or accepted attempt contains them. Messages are limited to 20,000 UTF-16 units and the complete state file to 32 MiB. Limit errors preserve the previous state.
 
@@ -42,15 +44,15 @@ Document and review operations share the existing per-canvas serialization and s
 
 The first mutation commits an empty state before creating snapshots. A snapshot is written and synchronized before any state referencing it. State commits use an exclusive temporary file in the destination directory, file synchronization, rename, and parent-directory synchronization. Files/directories use 0600/0700 permissions, consistent with existing storage. Only after the state commit is a workspace change published.
 
-Reads validate the schema, identities, file types, snapshot hashes, and anchor source/context. Invalid data, missing referenced snapshots, symlinks, or unknown formats are errors; they do not become empty reviews. A failed synchronization after rename stops store operations because durability is uncertain.
+Reads validate the schema, identities, file types, snapshot hashes, and anchor source/context. Invalid JSON or a schema mismatch is treated as no comments. Reads and startup leave that state and its snapshots untouched; saving a new comment replaces the state with the current schema. Identity inconsistencies, missing referenced snapshots, snapshot corruption and symlinks remain errors. A failed synchronization after rename stops store operations because durability is uncertain.
 
-Startup changes unfinished sends to `unknown`. It removes unreferenced snapshots and temporary files only after validating the relevant state. Resolved threads, anchor history and delivery records keep their snapshots. Missing state with committed snapshots is corruption. An interrupted initialization containing only empty directories/temporary files can be recovered.
+Startup changes unfinished sends to `unknown`. It removes unreferenced snapshots and temporary files only after validating the relevant state; schema-invalid states are skipped. Resolved threads, anchor history and delivery records keep their snapshots. Missing state with committed snapshots is corruption. An interrupted initialization containing only empty directories/temporary files can be recovered.
 
 Document deletion is committed before review cleanup. Startup removes review data whose document no longer exists, but treats a corrupt existing document as an error rather than a deletion.
 
 ## Source tracking
 
-Parser-produced maps preserve source positions through entity/escape decoding, emoji, inline code and formatting. Tracking compares a saved snapshot with the current body using `diff` 7.0.0. It uses unchanged spans and unique quote/context identity, bounded to 100 ms and edit distance 10,000 per comparison. Modified, deleted, ambiguous or over-budget targets are Outdated. The original quote remains available; no guessed relocation occurs. Tracking projections and message rendering trees are derived, not stored.
+Parser-produced maps preserve source positions through entity/escape decoding, emoji, inline code and formatting. Tracking compares a saved snapshot with the current body using `diff` 7.0.0. It uses unchanged spans and unique quote/context identity, bounded to 100 ms and edit distance 10,000 per comparison. A single diff is shared across the ranges in one anchor. Projections have the shape `{ranges: [{start, end, reason}]}` in anchor order. Modified, deleted, ambiguous or over-budget targets are individually Outdated; valid ranges remain navigable. The original quote remains available; no guessed relocation occurs. Tracking projections and message rendering trees are derived, not stored.
 
 ## Explicit dispatch
 

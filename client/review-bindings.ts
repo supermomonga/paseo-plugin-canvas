@@ -1,6 +1,7 @@
 import type { View, Text } from "react-native";
 import type { ReactNode } from "react";
 import type { Element } from "hast";
+export { sourceRange } from "../shared/review-targets";
 export type ReviewBindings = {
   enabled: boolean;
   register: (
@@ -12,12 +13,4 @@ export type ReviewBindings = {
   navigationRequest: number;
   text: (value: string, map: number[] | undefined, key: string) => ReactNode;
   wrap: (node: Element, child: ReactNode, key: string) => ReactNode;
-  select: (node: Element) => void;
 };
-export function sourceRange(node: Element) {
-  const start = node.properties.dataCanvasStart,
-    end = node.properties.dataCanvasEnd;
-  return typeof start === "number" && typeof end === "number"
-    ? { start, end }
-    : null;
-}

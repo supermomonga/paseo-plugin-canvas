@@ -67,10 +67,14 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
     action: "create",
     selection: {
       documentRevision: 1,
-      start: 2,
-      end: 6,
-      kind: "text",
-      selectedText: "Plan",
+      ranges: [
+        {
+          start: 2,
+          end: 6,
+          kind: "block",
+          selectedText: "Plan",
+        },
+      ],
     },
     body: "Explain the implementation",
   });

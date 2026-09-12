@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type KeyboardEvent,
+} from "react";
 import {
   Platform,
   Pressable,
@@ -6,10 +12,11 @@ import {
   View,
   type ScrollView as NativeScrollView,
 } from "react-native";
-import { Modal, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SettingsSelect } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
+  Button,
   TextInput,
   useRpcQuery,
   getClientHost,
@@ -30,14 +37,13 @@ import {
   type ReviewResult,
   type ReviewThread,
 } from "../shared/review";
-import { textContent } from "../shared/document";
+import {
+  reviewTargets,
+  targetLabel,
+  targetQuote,
+} from "../shared/review-targets";
 import { Markdown } from "./markdown";
 import { ToolbarButton, metaText, titleText } from "./controls";
-import {
-  observeTextSelection,
-  registerSelectionLeaf,
-  type SelectionLeaf,
-} from "./web";
 import { sourceRange, type ReviewBindings } from "./review-bindings";
 
 const statuses = {
@@ -74,7 +80,7 @@ export function ReviewDocument({
   const review = query.data;
   const positions =
     review?.documentRevision === canvas.revision ? review.projections : {};
-  const [width, setWidth] = useState(0),
+  const [width, setWidth] = useState<number | null>(null),
     [open, setOpen] = useState(false),
     [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState<ReviewSelection | null>(null),
@@ -87,43 +93,35 @@ export function ReviewDocument({
     [interrupt, setInterrupt] = useState(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
-  const [navigate, setNavigate] = useState<number | null>(null),
-    [lineStart, setLineStart] = useState<number | null>(null);
+  const [navigate, setNavigate] = useState<number | null>(null);
   const [navigationRequest, setNavigationRequest] = useState(0);
-  const leaves = useRef(new Map<string, SelectionLeaf>()),
-    blocks = useRef(
-      new Map<string, { node: View | Text; start: number; end: number }>(),
-    );
+  const blocks = useRef(
+    new Map<string, { node: View | Text; start: number; end: number }>(),
+  );
   const root = useRef<View>(null),
     scroll = useRef<NativeScrollView>(null),
     rail = useRef<NativeScrollView>(null);
   const cards = useRef(new Map<string, View>()),
     railRoot = useRef<View>(null);
-  const narrow = width < 920;
-  const current = useRef(canvas);
-  current.current = canvas;
-  useEffect(
-    () =>
-      observeTextSelection(
-        () => root.current,
-        leaves.current,
-        (range) => {
-          setSelection({
-            ...range,
-            documentRevision: current.current.revision,
-            kind: "text",
-          });
-        },
-      ),
-    [],
+  const narrow = width === null || width < 920;
+  const targets = reviewTargets(document);
+  const targetRanges = new Set(
+    targets.map((node) => {
+      const range = sourceRange(node)!;
+      return `${range.start}:${range.end}`;
+    }),
   );
+  const selectionCurrent = selection?.documentRevision === canvas.revision;
+  useEffect(() => {
+    if (open && selection && !selecting)
+      rail.current?.scrollTo({ y: 0, animated: true });
+  }, [open, selecting]);
   useEffect(() => {
     if (!recipient && recipients.data?.length === 1)
       setRecipient(recipients.data[0].id);
   }, [recipients.data, recipient]);
   useEffect(() => {
     setNavigate(null);
-    setLineStart(null);
   }, [mode, canvas.revision]);
   function moveToTarget() {
     if (navigate === null || !root.current) return;
@@ -141,25 +139,36 @@ export function ReviewDocument({
     moveToTarget();
   }, [navigate, navigationRequest, mode, canvas.revision]);
   function selectBlock(node: Element) {
+    if (!selecting) return;
     const range = sourceRange(node);
-    if (!range) return;
-    setSelection({
-      ...range,
-      documentRevision: canvas.revision,
-      kind: "block",
-      selectedText:
-        textContent(node).trim() ||
-        String(
-          node.properties.alt ??
-            (node.children.some(
-              (n) => n.type === "element" && n.tagName === "img",
-            )
-              ? "Image"
-              : node.tagName),
-        ),
+    if (!range || !targetRanges.has(`${range.start}:${range.end}`)) return;
+    setSelection((previous) => {
+      const ranges =
+        previous?.documentRevision === canvas.revision ? previous.ranges : [];
+      const exists = ranges.some(
+        (item) => item.start === range.start && item.end === range.end,
+      );
+      const next = exists
+        ? ranges.filter(
+            (item) => item.start !== range.start || item.end !== range.end,
+          )
+        : [
+            ...ranges,
+            {
+              ...range,
+              kind: "block" as const,
+              selectedText: targetQuote(node),
+            },
+          ];
+      return next.length
+        ? {
+            documentRevision: canvas.revision,
+            ranges: next.sort((a, b) => a.start - b.start),
+          }
+        : null;
     });
   }
-  function activate(id: string, fromBody = false) {
+  function activate(id: string, fromBody = false, rangeIndex = 0) {
     setActive(id);
     setOpen(true);
     if (fromBody) {
@@ -173,11 +182,10 @@ export function ReviewDocument({
           );
       }, 0);
     } else {
-      const projection = positions[id];
+      const projection = positions[id]?.ranges[rangeIndex];
       if (projection?.start != null) {
         setNavigate(projection.start);
         setNavigationRequest((value) => value + 1);
-        if (narrow) setOpen(false);
       }
     }
   }
@@ -230,10 +238,13 @@ export function ReviewDocument({
       const ids = Object.entries(positions)
         .filter(
           ([id, p]) =>
-            p.start !== null &&
-            p.end !== null &&
-            map[i * 2] < p.end &&
-            map[i * 2 + 1] > p.start &&
+            p.ranges.some(
+              (range) =>
+                range.start !== null &&
+                range.end !== null &&
+                map[i * 2] < range.end &&
+                map[i * 2 + 1] > range.start,
+            ) &&
             (showResolved || review!.state.threads[id].status !== "resolved"),
         )
         .map(([id]) => id);
@@ -244,15 +255,6 @@ export function ReviewDocument({
     return segments.map((s) => (
       <Text
         key={`${key}:${s.start}`}
-        ref={(node) => {
-          const id = `${key}:${s.start}`;
-          registerSelectionLeaf(
-            leaves.current,
-            id,
-            node,
-            map.slice(s.start * 2, s.end * 2),
-          );
-        }}
         onPress={
           !selecting && s.ids.length
             ? () => {
@@ -278,60 +280,96 @@ export function ReviewDocument({
   function wrap(node: Element, child: ReactNode, key: string) {
     const range = sourceRange(node);
     if (!range) return child;
-    const selectable = selecting && node.tagName !== "table";
+    const selected =
+      selectionCurrent &&
+      !!selection?.ranges.some(
+        (item) => item.start === range.start && item.end === range.end,
+      );
     const ids = Object.entries(positions)
       .filter(
         ([id, p]) =>
-          p.start !== null &&
-          p.end !== null &&
-          p.start < range.end &&
-          p.end > range.start &&
+          p.ranges.some(
+            (part) =>
+              part.start !== null &&
+              part.end !== null &&
+              part.start < range.end &&
+              part.end > range.start,
+          ) &&
           (showResolved || review!.state.threads[id].status !== "resolved"),
       )
       .map(([id]) => id);
     return (
-      <View
-        key={key}
-        ref={(node) => {
-          if (node) blocks.current.set(key, { node, ...range });
-          else blocks.current.delete(key);
-        }}
-        onLayout={moveToTarget}
-        style={{
-          gap: 6,
-          borderLeftWidth: ids.length || selecting ? 2 : 0,
-          borderColor: ids.includes(active ?? "")
-            ? colors.accent
-            : colors.border,
-          paddingLeft: ids.length || selecting ? 8 : 0,
-        }}
-      >
-        {(selectable ||
-          node.tagName === "pre" ||
-          node.tagName === "img" ||
-          node.children.some(
-            (n) => n.type === "element" && n.tagName === "img",
-          )) && (
-          <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-            <ToolbarButton
-              icon="MessageSquarePlus"
-              label="Select target"
-              onPress={() => selectBlock(node)}
-            />
-          </View>
-        )}
-        {selectable ? (
-          <Pressable
-            onPress={() => selectBlock(node)}
-            accessibilityRole="button"
-            accessibilityLabel={`Select ${node.tagName} for review`}
+      <View key={key} style={{ gap: 6 }}>
+        <Pressable
+          ref={(node) => {
+            if (node) blocks.current.set(key, { node, ...range });
+            else blocks.current.delete(key);
+          }}
+          onLayout={moveToTarget}
+          testID={`review-target-${range.start}-${range.end}`}
+          accessible={selecting}
+          focusable={selecting}
+          onPress={selecting ? () => selectBlock(node) : undefined}
+          {...(Platform.OS === "web" && selecting
+            ? {
+                onKeyDown: (event: KeyboardEvent) => {
+                  // React Native Web handles Enter, but checkbox Space is not a press.
+                  if (
+                    event.key === " " &&
+                    event.target === event.currentTarget
+                  ) {
+                    event.preventDefault();
+                    if (!event.repeat) selectBlock(node);
+                  }
+                },
+              }
+            : {})}
+          accessibilityRole={selecting ? "checkbox" : undefined}
+          accessibilityLabel={
+            selecting
+              ? `Select ${targetLabel(node)} for comment: ${targetQuote(node).replace(/\s+/g, " ").slice(0, 120)}`
+              : undefined
+          }
+          aria-checked={selecting ? selected : undefined}
+          style={{
+            borderWidth: 2,
+            borderRadius: 6,
+            borderColor:
+              selected || ids.includes(active ?? "")
+                ? colors.accent
+                : ids.length || selecting
+                  ? colors.border
+                  : "transparent",
+            backgroundColor: selected ? colors.surface2 : undefined,
+            padding: 8,
+          }}
+        >
+          <View
+            pointerEvents={selecting ? "none" : "auto"}
+            accessibilityElementsHidden={selecting}
+            importantForAccessibility={
+              selecting ? "no-hide-descendants" : "auto"
+            }
           >
-            <View pointerEvents="none">{child}</View>
-          </Pressable>
-        ) : (
-          child
-        )}
-        {!!ids.length && (
+            {child}
+          </View>
+          {selected && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                borderRadius: 12,
+                padding: 3,
+                backgroundColor: colors.accent,
+              }}
+            >
+              <Icon name="Check" size={16} color={colors.accentForeground} />
+            </View>
+          )}
+        </Pressable>
+        {!selecting && !!ids.length && (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
             {ids.map((id) => (
               <ToolbarButton
@@ -349,9 +387,10 @@ export function ReviewDocument({
   }
   const threads = Object.values(review?.state.threads ?? {}).sort(
     (a, b) =>
-      (review?.projections[a.id]?.start ?? Infinity) -
-        (review?.projections[b.id]?.start ?? Infinity) ||
-      a.createdAt.localeCompare(b.createdAt),
+      (review?.projections[a.id]?.ranges.find((range) => range.start !== null)
+        ?.start ?? Infinity) -
+        (review?.projections[b.id]?.ranges.find((range) => range.start !== null)
+          ?.start ?? Infinity) || a.createdAt.localeCompare(b.createdAt),
   );
   const numbers = new Map(threads.map((t, i) => [t.id, i + 1]));
   const bindings: ReviewBindings = {
@@ -360,88 +399,51 @@ export function ReviewDocument({
     navigationRequest,
     text: markedText,
     wrap,
-    select: selectBlock,
     register: (key, node, range) => {
       if (node && range) blocks.current.set(key, { node, ...range });
       else blocks.current.delete(key);
     },
   };
-  function selectLine(start: number, end: number) {
-    if (lineStart === null) {
-      setLineStart(start);
-      setSelection(null);
-      return;
-    }
-    const from = Math.min(lineStart, start);
-    let to = end;
-    if (lineStart > start) {
-      const next = canvas.content.indexOf("\n", lineStart);
-      to = next < 0 ? canvas.content.length : next + 1;
-    }
-    setSelection({
-      documentRevision: canvas.revision,
-      kind: "lines",
-      start: from,
-      end: to,
-      selectedText: canvas.content.slice(from, to),
-    });
-    setLineStart(null);
-  }
-  let offset = 0;
-  const source = () =>
-    (canvas.content.match(/[^\n]*\n|[^\n]+$/g) ?? []).map((line, index) => {
-      const start = offset,
-        end = start + line.length;
-      offset = end;
-      const node: Element = {
-        type: "element",
-        tagName: "code-line",
-        properties: { dataCanvasStart: start, dataCanvasEnd: end },
-        children: [],
-      };
-      const value = line.replace(/\r?\n$/, "");
+  function source() {
+    const output: ReactNode[] = [];
+    let offset = 0;
+    function render(start: number, end: number) {
+      const value = canvas.content.slice(start, end);
       const map = Array.from({ length: value.length }, (_, i) => [
         start + i,
         start + i + 1,
       ]).flat();
-      return wrap(
-        node,
-        <View
-          style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}
+      return (
+        <Text
+          key={`source:${start}`}
+          selectable={!selecting}
+          style={{
+            fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+            fontSize: 12,
+            lineHeight: 22,
+            color: colors.foreground,
+          }}
         >
-          {Platform.OS !== "web" && (
-            <ToolbarButton
-              icon="Hash"
-              label={String(index + 1)}
-              accessibilityLabel={`Select line ${index + 1}`}
-              onPress={() => selectLine(start, end)}
-              style={{
-                minWidth: 52,
-                backgroundColor:
-                  lineStart === start ? colors.surface2 : undefined,
-              }}
-            />
-          )}
-          <Text
-            selectable={Platform.OS === "web"}
-            style={{
-              flex: 1,
-              fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-              fontSize: 12,
-              lineHeight: 22,
-              color: colors.foreground,
-              backgroundColor:
-                selection && start < selection.end && end > selection.start
-                  ? colors.surface2
-                  : undefined,
-            }}
-          >
-            {value ? markedText(value, map, `source:${index}`) : "\n"}
-          </Text>
-        </View>,
-        `line:${index}`,
+          {markedText(value, map, `source:${start}`)}
+        </Text>
       );
-    });
+    }
+    for (const node of targets) {
+      const range = sourceRange(node)!;
+      if (range.start > offset) output.push(render(offset, range.start));
+      output.push(
+        wrap(
+          node,
+          render(range.start, range.end),
+          `source-block:${range.start}`,
+        ),
+      );
+      offset = range.end;
+    }
+    if (offset < canvas.content.length)
+      output.push(render(offset, canvas.content.length));
+    return output;
+  }
   const selectedThreads = threads.filter(
     (t) => checked.includes(t.id) && t.status !== "resolved",
   );
@@ -465,7 +467,7 @@ export function ReviewDocument({
           onPress={() => setShowResolved(!showResolved)}
         />
       </View>
-      {!!selection && (
+      {!!selection && !selecting && (
         <View
           style={{
             gap: 8,
@@ -478,13 +480,30 @@ export function ReviewDocument({
           <Text style={{ ...titleText, color: colors.foreground }}>
             {reattach ? "Reattach comment" : "New comment"}
           </Text>
-          <Text
-            selectable
-            numberOfLines={5}
-            style={{ ...metaText, color: colors.foregroundMuted }}
-          >
-            {selection.selectedText}
-          </Text>
+          {selection.ranges.map((range) => (
+            <Text
+              key={`${range.start}:${range.end}`}
+              selectable
+              numberOfLines={5}
+              style={{
+                ...metaText,
+                color: colors.foregroundMuted,
+                borderLeftWidth: 2,
+                borderColor: colors.border,
+                paddingLeft: 8,
+              }}
+            >
+              {range.selectedText}
+            </Text>
+          ))}
+          <ToolbarButton
+            icon="MousePointer2"
+            label="Change selection"
+            onPress={() => {
+              setSelecting(true);
+              setOpen(false);
+            }}
+          />
           {!reattach && (
             <TextInput
               label="Comment"
@@ -526,7 +545,8 @@ export function ReviewDocument({
       )}
       {!threads.length && (
         <Text style={{ color: colors.foregroundMuted }}>
-          Select text or a block in the canvas to add a comment.
+          Choose Select elements, then tap or click the elements you want to
+          comment on.
         </Text>
       )}
       {threads
@@ -558,7 +578,7 @@ export function ReviewDocument({
                 )
               }
               positionsReady={review?.documentRevision === canvas.revision}
-              navigate={() => activate(t.id)}
+              navigate={(index) => activate(t.id, false, index)}
               reattach={() => {
                 setReattach(t.id);
                 setSelecting(true);
@@ -718,8 +738,14 @@ export function ReviewDocument({
   const errors = error ?? query.error?.message;
   return (
     <View
+      testID="review-document"
       style={{ flex: 1, minHeight: 0 }}
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      onLayout={(e) => {
+        const measuredWidth = e.nativeEvent.layout.width;
+        // Hidden workspace tabs have no usable width. Keep the last layout
+        // until the document is visible and can be measured again.
+        if (measuredWidth > 0) setWidth(measuredWidth);
+      }}
     >
       <View
         style={{
@@ -738,33 +764,32 @@ export function ReviewDocument({
           label={`Comments${threads.length ? ` (${threads.length})` : ""}`}
           onPress={() => setOpen(!open)}
         />
-        {Platform.OS !== "web" && mode === "preview" && (
-          <ToolbarButton
-            icon={selecting ? "Check" : "MousePointer2"}
-            label={selecting ? "Finish selecting" : "Review"}
-            onPress={() => {
-              setSelecting(!selecting);
-              if (!selecting) setOpen(false);
-            }}
-          />
-        )}
-        {!!selection && (
-          <ToolbarButton
-            icon="MessageSquarePlus"
-            label={reattach ? "Reattach comment" : "Add comment"}
-            onPress={() => setOpen(true)}
-          />
-        )}
-        {Platform.OS !== "web" && mode === "source" && (
-          <Text style={{ ...metaText, color: colors.foregroundMuted }}>
-            {lineStart === null
-              ? "Select the first and last line"
-              : "Select the last line"}
-          </Text>
-        )}
+        <ToolbarButton
+          icon={selecting ? "X" : "MousePointer2"}
+          label={selecting ? "Cancel selection" : "Select elements"}
+          onPress={() => {
+            if (selecting) {
+              setSelecting(false);
+              setSelection(null);
+              setReattach(null);
+            } else {
+              setSelecting(true);
+              setOpen(false);
+            }
+          }}
+        />
         {selecting && (
           <Text style={{ ...metaText, color: colors.foregroundMuted }}>
-            Select a paragraph, cell or diagram
+            Tap or click elements to select them. Select again to remove.
+          </Text>
+        )}
+        {selecting && selection && !selectionCurrent && (
+          <Text
+            accessibilityRole="alert"
+            style={{ ...metaText, color: colors.statusWarning }}
+          >
+            Canvas changed. Select the elements again; your comment is
+            preserved.
           </Text>
         )}
       </View>
@@ -776,11 +801,22 @@ export function ReviewDocument({
           {errors}
         </Text>
       )}
-      <View style={{ flex: 1, minHeight: 0, flexDirection: "row" }}>
+      <View
+        testID="review-panes"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          flexDirection: narrow ? "column" : "row",
+        }}
+      >
         <ScrollView
+          testID="review-body"
           ref={scroll}
-          style={{ flex: 1, minWidth: 0 }}
-          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+          style={{ flex: 1, minWidth: 0, minHeight: 0 }}
+          contentContainerStyle={{
+            padding: 16,
+            paddingBottom: selecting ? 96 : 32,
+          }}
         >
           <View
             ref={root}
@@ -807,29 +843,41 @@ export function ReviewDocument({
             )}
           </View>
         </ScrollView>
-        {open && !narrow && (
+        {open && (
           <View
+            testID="review-comments"
             style={{
-              width: 340,
-              borderLeftWidth: 1,
+              flex: narrow ? 1 : undefined,
+              width: narrow ? "100%" : 340,
+              minHeight: 0,
+              borderLeftWidth: narrow ? 0 : 1,
+              borderTopWidth: narrow ? 1 : 0,
               borderColor: colors.border,
             }}
           >
-            <ScrollView ref={rail}>{commentPanel}</ScrollView>
+            <ScrollView ref={rail} style={{ flex: 1, minHeight: 0 }}>
+              {commentPanel}
+            </ScrollView>
           </View>
         )}
       </View>
-      <Modal
-        title="Canvas comments"
-        open={open && narrow}
-        onOpenChange={setOpen}
-      >
-        <Modal.Content>
-          <ScrollView ref={rail} style={{ maxHeight: 650 }}>
-            {commentPanel}
-          </ScrollView>
-        </Modal.Content>
-      </Modal>
+      {selecting && selection && selectionCurrent && (
+        <View
+          testID="review-comment-action"
+          style={{ position: "absolute", right: 16, bottom: 16 }}
+        >
+          <Button
+            icon="MessageSquare"
+            label="Comment"
+            size="md"
+            variant="primary"
+            onPress={() => {
+              setSelecting(false);
+              setOpen(true);
+            }}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -859,7 +907,7 @@ function ReviewCard({
   busy: boolean;
   checked: boolean;
   toggle: () => void;
-  navigate: () => void;
+  navigate: (rangeIndex: number) => void;
   positionsReady: boolean;
   reattach: () => void;
   onError: (message: string) => void;
@@ -871,7 +919,7 @@ function ReviewCard({
   const colors = theme.colors,
     anchor = thread.anchors.find((a) => a.id === thread.currentAnchorId)!;
   const scope = { threadId: thread.id, expectedRevision: thread.revision };
-  const outdated = review.projections[thread.id]?.reason;
+  const projections = review.projections[thread.id]?.ranges;
   return (
     <View
       style={{
@@ -898,38 +946,49 @@ function ReviewCard({
           {statuses[thread.status]}
         </Text>
       </View>
-      <Text
-        selectable
-        numberOfLines={5}
-        style={{
-          ...metaText,
-          color: colors.foregroundMuted,
-          borderLeftWidth: 2,
-          borderColor: colors.border,
-          paddingLeft: 8,
-        }}
-      >
-        {anchor.selectedText}
-      </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+      {anchor.ranges.map((range, index) => {
+        const projection = projections?.[index];
+        return (
+          <View
+            key={`${range.start}:${range.end}`}
+            style={{
+              gap: 6,
+              borderLeftWidth: 2,
+              borderColor: colors.border,
+              paddingLeft: 8,
+            }}
+          >
+            <Text
+              selectable
+              numberOfLines={5}
+              style={{ ...metaText, color: colors.foregroundMuted }}
+            >
+              {range.selectedText}
+            </Text>
+            <ToolbarButton
+              icon="Locate"
+              label="Go to target"
+              onPress={() => navigate(index)}
+              disabled={
+                !positionsReady ||
+                projection?.start == null ||
+                !!projection.reason
+              }
+            />
+            {projection?.reason && (
+              <Text style={{ ...metaText, color: colors.statusWarning }}>
+                Outdated · {projection.reason}
+              </Text>
+            )}
+          </View>
+        );
+      })}
+      {thread.status !== "resolved" && (
         <ToolbarButton
-          icon="Locate"
-          label="Go to target"
-          onPress={navigate}
-          disabled={!positionsReady || !!outdated}
+          icon="MousePointer2"
+          label="Reattach"
+          onPress={reattach}
         />
-        {thread.status !== "resolved" && (
-          <ToolbarButton
-            icon="MousePointer2"
-            label="Reattach"
-            onPress={reattach}
-          />
-        )}
-      </View>
-      {outdated && (
-        <Text style={{ ...metaText, color: colors.statusWarning }}>
-          Outdated · {outdated}
-        </Text>
       )}
       {!!thread.assignedAgentId && (
         <Text style={{ ...metaText, color: colors.foregroundMuted }}>
