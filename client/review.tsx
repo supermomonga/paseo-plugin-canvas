@@ -593,7 +593,10 @@ export function ReviewDocument({
             <ToolbarButton
               icon="X"
               accessibilityLabel="Close comment"
-              onPress={() => setInline(null)}
+              onPress={() => {
+                setInline(null);
+                if (inline.kind === "new") setSelecting(true);
+              }}
             />
           </>
         }

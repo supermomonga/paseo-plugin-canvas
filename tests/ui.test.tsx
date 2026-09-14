@@ -1512,6 +1512,8 @@ test.each(["web", "android", "ios"])(
         tree.root.findAllByProps({ testID: "review-inline" }),
       ).toHaveLength(0);
       expect(bodyView.props.style.flex).toBe(1);
+      expect(button(tree, "Cancel selection")).toBeUndefined();
+      expect(button(tree, "Comment mode")).toBeDefined();
     } finally {
       if (view) await act(async () => view!.unmount());
       await store.close();
@@ -2015,3 +2017,59 @@ test("comment badges toggle at their own target and move a shared thread to anot
     await fixture.close();
   }
 });
+
+test.each(["web", "android", "ios"])(
+  "%s closing a new comment returns to comment mode with editable selections and the draft intact",
+  async (platform) => {
+    nativePlatform.OS = platform;
+    const canvas = reviewCanvas("# Heading\n\nFirst paragraph.\n");
+    for (const mode of ["preview", "source"] as const) {
+      let view!: ReactTestRenderer;
+      try {
+        await act(async () => {
+          view = create(reviewView(canvas, mode));
+        });
+        const target = (index: number) => {
+          const range = sourceRange(
+            reviewTargets(parseDocument(canvas.content))[index],
+          )!;
+          return view.root.findByProps({
+            testID: `review-target-${range.start}-${range.end}`,
+          });
+        };
+        await act(async () => button(view, "Comment mode").props.onPress());
+        await act(async () => target(0).props.onPress());
+        await act(async () => target(1).props.onPress());
+        await act(async () => button(view, "Add comment").props.onPress());
+        const input = () =>
+          view.root
+            .findAllByType("TextInput" as never)
+            .find((node) => node.props.accessibilityLabel === "Comment")!;
+        await act(async () => input().props.onChangeText("コメントの下書き"));
+        await act(async () => button(view, "Close comment").props.onPress());
+        expect(
+          view.root.findAllByProps({ testID: "review-inline" }),
+        ).toHaveLength(0);
+        expect(button(view, "Cancel selection")).toBeDefined();
+        expect(button(view, "Comment mode")).toBeUndefined();
+        expect(button(view, "Resume comment")).toBeUndefined();
+        expect(button(view, "Add comment")).toBeDefined();
+        expect(target(0).props["aria-checked"]).toBe(true);
+        expect(target(1).props["aria-checked"]).toBe(true);
+        await act(async () => target(0).props.onPress());
+        expect(target(0).props["aria-checked"]).toBe(false);
+        expect(target(1).props["aria-checked"]).toBe(true);
+        await act(async () => button(view, "Add comment").props.onPress());
+        expect(input().props.value).toBe("コメントの下書き");
+        await act(async () => button(view, "Close comment").props.onPress());
+        await act(async () => button(view, "Cancel selection").props.onPress());
+        expect(button(view, "Comment mode")).toBeDefined();
+        expect(button(view, "Add comment")).toBeUndefined();
+        expect(target(1).props.onPress).toBeUndefined();
+        expect(reviewCalls).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => view?.unmount());
+      }
+    }
+  },
+);
