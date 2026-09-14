@@ -605,15 +605,6 @@ export function ReviewDocument({
           <>
             {selection && (
               <View style={{ gap: 8 }}>
-                <ToolbarButton
-                  icon="MousePointer2"
-                  label="Change selection"
-                  onPress={() => {
-                    setSelecting(true);
-                    setInline(null);
-                    setOpen(false);
-                  }}
-                />
                 {selection.documentRevision !== canvas.revision && (
                   <Text style={{ color: colors.statusWarning }}>
                     Canvas changed. Select the target again; your comment is

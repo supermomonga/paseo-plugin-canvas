@@ -1298,7 +1298,7 @@ test.each(["web", "android", "ios"])(
       input.props.onChangeText("One comment for all selected elements"),
     );
     // Switching views and resuming selection retains the unsaved comment.
-    await act(async () => button(view, "Change selection").props.onPress());
+    await act(async () => button(view, "Close comment").props.onPress());
     await act(async () => view.update(reviewView(canvas, "preview")));
     expect(target(3).props["aria-checked"]).toBe(true);
     await act(async () => button(view, "Add comment").props.onPress());
@@ -1350,7 +1350,7 @@ test("deselecting all or cancelling removes the floating action; updates require
     view.update(reviewView({ ...canvas, revision: 2 }, "preview")),
   );
   expect(button(view, "Save comment").props.disabled).toBe(true);
-  await act(async () => button(view, "Change selection").props.onPress());
+  await act(async () => button(view, "Close comment").props.onPress());
   expect(button(view, "Add comment")).toBeUndefined();
   expect(target().props["aria-checked"]).toBe(false);
   await act(async () => target().props.onPress());
