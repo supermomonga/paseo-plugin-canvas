@@ -57,7 +57,7 @@ import type {
   ToastApi,
 } from "@getpaseo/plugin/client/react-native";
 import type { PluginIconProps } from "@getpaseo/plugin/client";
-export { ScrollView };
+export { ScrollView, TextInput } from "react-native";
 const icons = {
   MessageSquare,
   MessageSquarePlus,

@@ -33,6 +33,8 @@ vi.mock("react-native", () => ({
     },
   },
   View: "View",
+  KeyboardAvoidingView: "KeyboardAvoidingView",
+  Keyboard: { addListener: () => ({ remove: () => {} }) },
   Modal: "NativeModal",
   SafeAreaView: "SafeAreaView",
   Image: Object.assign((props: object) => React.createElement("Image", props), {
@@ -315,13 +317,13 @@ test("a zero-width hidden tab preserves the automatically displayed document and
   await act(async () => layout(1200));
   await act(async () => button(view, "Comments").props.onPress());
   const document = view.root.findByType(ReviewDocument);
-  const comments = view.root.findByProps({ testID: "review-comments" });
+  const comments = view.root.findByProps({ testID: "review-overview" });
   await act(async () => layout(0));
   expect(view.root.findByType(ReviewDocument)).toBe(document);
-  expect(view.root.findByProps({ testID: "review-comments" })).toBe(comments);
+  expect(view.root.findByProps({ testID: "review-overview" })).toBe(comments);
   await act(async () => layout(1200));
   expect(view.root.findByType(ReviewDocument)).toBe(document);
-  expect(view.root.findByProps({ testID: "review-comments" })).toBe(comments);
+  expect(view.root.findByProps({ testID: "review-overview" })).toBe(comments);
   await act(async () => view.unmount());
 });
 
@@ -1259,6 +1261,12 @@ test.each(["web", "android", "ios"])(
     await act(async () => target(3).props.onPress());
     await act(async () => button(view, "Comment").props.onPress());
     expect(
+      target(3).parent!.findAllByProps({ testID: "review-inline" }),
+    ).toHaveLength(1);
+    expect(
+      target(4).parent!.findAllByProps({ testID: "review-inline" }),
+    ).toHaveLength(0);
+    expect(
       view.root.findAllByProps({ testID: "review-comment-action" }),
     ).toHaveLength(0);
     const input = view.root
@@ -1369,6 +1377,17 @@ test.each(["web", "android", "ios"])(
           body: "Original comment",
         },
       );
+      const originalThread = Object.values(queries.review.state.threads)[0];
+      queries.review = await store.reviews.mutate(
+        actor.workspaceId,
+        canvas.canvasId,
+        {
+          action: "reply",
+          threadId: originalThread.id,
+          expectedRevision: originalThread.revision,
+          body: "Another message",
+        },
+      );
       const thread = Object.values(queries.review.state.threads)[0];
       await act(async () => {
         view = create(reviewView(canvas, "preview"));
@@ -1380,104 +1399,93 @@ test.each(["web", "android", "ios"])(
             nativeEvent: { layout: { width } },
           });
         });
-      const panes = () => tree.root.findByProps({ testID: "review-panes" });
-      const comments = () =>
-        tree.root.findByProps({ testID: "review-comments" });
-      // No measurement yet: open below the document without a modal.
-      await act(async () => button(tree, "Comments (1)").props.onPress());
-      expect(panes().props.style.flexDirection).toBe("column");
-      expect(tree.root.findAllByType(SdkModal)).toHaveLength(0);
+      const input = (label: string) =>
+        tree.root
+          .findAllByType("TextInput" as never)
+          .find((node) => node.props.accessibilityLabel === label)!;
+      const bodyView = tree.root.findByProps({ testID: "review-body" });
       await act(async () => button(tree, "Select elements").props.onPress());
       await act(async () =>
         tree.root.findByProps({ testID: "review-target-0-16" }).props.onPress(),
       );
       await act(async () => button(tree, "Comment").props.onPress());
-      const input = (placeholder: string) =>
-        tree.root
-          .findAllByType("TextInput" as never)
-          .find((node) => node.props.placeholder === placeholder)!;
-      await act(async () =>
-        input("Describe the change you want").props.onChangeText("New draft"),
-      );
-      await act(async () =>
-        input("Reply or clarify the request").props.onChangeText("Reply draft"),
-      );
-      await act(async () => button(tree, "Edit").props.onPress());
-      const editInput = tree.root
-        .findAllByType("TextInput" as never)
-        .find((node) => node.props.value === "Original comment")!;
-      await act(async () => editInput.props.onChangeText("Edited draft"));
-      const originalPanel = comments();
-      const originalReply = input("Reply or clarify the request");
-      for (const [width, direction] of [
-        [1200, "row"],
-        [0, "row"],
-        [1200, "row"],
-        [920, "row"],
-        [919, "column"],
-        [430, "column"],
-        [0, "column"],
-        [1200, "row"],
-        [430, "column"],
-      ] as const) {
+      await act(async () => input("Comment").props.onChangeText("New draft"));
+      const originalInput = input("Comment");
+      for (const width of [1200, 0, 920, 919, 430, 0, 1200]) {
         await resize(width);
-        expect(panes().props.style.flexDirection).toBe(direction);
-        expect(comments()).toBe(originalPanel);
-        expect(input("Reply or clarify the request")).toBe(originalReply);
-        expect(input("Reply or clarify the request").props.value).toBe(
-          "Reply draft",
-        );
-        expect(input("Describe the change you want").props.value).toBe(
-          "New draft",
-        );
-        expect(editInput.props.value).toBe("Edited draft");
+        expect(input("Comment")).toBe(originalInput);
+        expect(
+          tree.root.findAllByProps({ testID: "review-inline" }),
+        ).toHaveLength(1);
+        expect(
+          tree.root.findAllByProps({ testID: "review-panes" }),
+        ).toHaveLength(0);
         expect(tree.root.findAllByType(SdkModal)).toHaveLength(0);
       }
+      await act(async () => button(tree, "Comments (1)").props.onPress());
+      expect(bodyView.props.style.display).toBe("none");
+      expect(tree.root.findAllByType("TextInput" as never)).toHaveLength(0);
       await act(async () => button(tree, "Go to target").props.onPress());
-      expect(comments()).toBe(originalPanel);
+      expect(bodyView.props.style.display).toBe("flex");
+      expect(tree.root.findByProps({ testID: "review-body" })).toBe(bodyView);
       expect(
-        tree.root.findAllByType(Markdown).find((node) => node.props.review)!
-          .props.review.navigate,
-      ).toBe(0);
-      await act(async () => button(tree, "Save reply").props.onPress());
-      await act(async () => button(tree, "Save").props.onPress());
-      await act(async () => button(tree, "Save comment").props.onPress());
-      await act(async () => button(tree, "Resolve").props.onPress());
-      const mutations = reviewCalls.mock.calls.map(
-        ([, input]) => (input as { mutation: unknown }).mutation,
+        tree.root.findAllByProps({ testID: "review-inline" }),
+      ).toHaveLength(1);
+      await act(async () => input("Reply").props.onChangeText("Reply draft"));
+      await act(async () => button(tree, "Edit").props.onPress());
+      await act(async () =>
+        input("Edit comment").props.onChangeText("Edited draft"),
       );
-      expect(mutations).toEqual([
-        {
-          action: "reply",
-          threadId: thread.id,
-          expectedRevision: thread.revision,
-          body: "Reply draft",
-        },
-        {
+      const editButtons = () =>
+        tree.root
+          .findAllByType(Button)
+          .filter((node) => node.props.label === "Edit");
+      await act(async () => editButtons()[1].props.onPress());
+      await act(async () =>
+        input("Edit comment").props.onChangeText("Other edited draft"),
+      );
+      await act(async () => editButtons()[0].props.onPress());
+      expect(input("Edit comment").props.value).toBe("Edited draft");
+      expect(input("Reply")).toBeUndefined();
+      await act(async () => button(tree, "Resume comment").props.onPress());
+      expect(input("Comment").props.value).toBe("New draft");
+      await act(async () => tree.update(reviewView(canvas, "source")));
+      expect(input("Comment").props.value).toBe("New draft");
+      await act(async () => button(tree, "Save comment").props.onPress());
+      expect(reviewCalls.mock.calls.at(-1)?.[1]).toMatchObject({
+        mutation: { action: "create", selection, body: "New draft" },
+      });
+      // Failed saves preserve the form and the draft.
+      expect(input("Comment").props.value).toBe("New draft");
+      await act(async () => button(tree, "Comments (1)").props.onPress());
+      await act(async () => button(tree, "Go to target").props.onPress());
+      expect(input("Edit comment").props.value).toBe("Edited draft");
+      await act(async () => button(tree, "Save").props.onPress());
+      expect(reviewCalls.mock.calls.at(-1)?.[1]).toMatchObject({
+        mutation: {
           action: "edit",
-          threadId: thread.id,
-          expectedRevision: thread.revision,
           messageId: thread.messages[0].id,
           body: "Edited draft",
         },
-        { action: "create", selection, body: "New draft" },
-        {
-          action: "status",
-          threadId: thread.id,
-          expectedRevision: thread.revision,
-          resolved: true,
-        },
-      ]);
-      await act(async () => button(tree, "Comments (1)").props.onPress());
-      await resize(1200);
-      await resize(0);
-      await resize(430);
+      });
+      await act(async () => button(tree, "Cancel").props.onPress());
+      await act(async () => editButtons()[1].props.onPress());
+      expect(input("Edit comment").props.value).toBe("Other edited draft");
+      await act(async () => button(tree, "Cancel").props.onPress());
+      expect(input("Reply").props.value).toBe("Reply draft");
+      await act(async () => button(tree, "Save reply").props.onPress());
+      expect(reviewCalls.mock.calls.at(-1)?.[1]).toMatchObject({
+        mutation: { action: "reply", body: "Reply draft" },
+      });
+      await act(async () => button(tree, "Resolve").props.onPress());
+      expect(reviewCalls.mock.calls.at(-1)?.[1]).toMatchObject({
+        mutation: { action: "status", resolved: true },
+      });
+      await act(async () => button(tree, "Close comment").props.onPress());
       expect(
-        tree.root.findAllByProps({ testID: "review-comments" }),
+        tree.root.findAllByProps({ testID: "review-inline" }),
       ).toHaveLength(0);
-      expect(
-        tree.root.findByProps({ testID: "review-body" }).props.style.flex,
-      ).toBe(1);
+      expect(bodyView.props.style.flex).toBe(1);
     } finally {
       if (view) await act(async () => view!.unmount());
       await store.close();

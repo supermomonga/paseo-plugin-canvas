@@ -15,12 +15,7 @@ import {
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SettingsSelect } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
-import {
-  Button,
-  TextInput,
-  useRpcQuery,
-  getClientHost,
-} from "paseo-plugin-helper/client";
+import { Button, useRpcQuery, getClientHost } from "paseo-plugin-helper/client";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Root, Element } from "hast";
 import type { Canvas } from "../shared/contracts";
@@ -45,6 +40,13 @@ import {
 import { Markdown } from "./markdown";
 import { ToolbarButton, metaText, titleText } from "./controls";
 import { sourceRange, type ReviewBindings } from "./review-bindings";
+import {
+  CommentEditor,
+  ReviewKeyboard,
+  ReviewEntry,
+  type EditorDraft,
+  emptyEditorDraft,
+} from "./review-input";
 
 const statuses = {
   needs_agent_review: "Needs agent review",
@@ -80,9 +82,21 @@ export function ReviewDocument({
   const review = query.data;
   const positions =
     review?.documentRevision === canvas.revision ? review.projections : {};
-  const [width, setWidth] = useState<number | null>(null),
-    [open, setOpen] = useState(false),
+  const [open, setOpen] = useState(false),
     [selecting, setSelecting] = useState(false);
+  const [inline, setInline] = useState<
+    { kind: "new" } | { kind: "thread"; id: string; rangeIndex: number } | null
+  >(null);
+  const [draftAt, setDraftAt] = useState<number | null>(null);
+  const selectedOrder = useRef<number[]>([]);
+  const suspendedNew = useRef<{
+    selection: ReviewSelection | null;
+    at: number | null;
+    order: number[];
+  } | null>(null);
+  const [threadDrafts, setThreadDrafts] = useState<Record<string, EditorDraft>>(
+    {},
+  );
   const [selection, setSelection] = useState<ReviewSelection | null>(null),
     [draft, setDraft] = useState("");
   const [reattach, setReattach] = useState<string | null>(null),
@@ -99,11 +113,13 @@ export function ReviewDocument({
     new Map<string, { node: View | Text; start: number; end: number }>(),
   );
   const root = useRef<View>(null),
-    scroll = useRef<NativeScrollView>(null),
-    rail = useRef<NativeScrollView>(null);
-  const cards = useRef(new Map<string, View>()),
-    railRoot = useRef<View>(null);
-  const narrow = width === null || width < 920;
+    scroll = useRef<NativeScrollView>(null);
+  const scrollY = useRef(0);
+  const overviewScroll = useRef<NativeScrollView>(null);
+  const overviewY = useRef(0);
+  const [reveal, setReveal] = useState(0);
+  const pendingTarget = useRef(false);
+  const pendingRestore = useRef(false);
   const targets = reviewTargets(document);
   const targetRanges = new Set(
     targets.map((node) => {
@@ -113,10 +129,6 @@ export function ReviewDocument({
   );
   const selectionCurrent = selection?.documentRevision === canvas.revision;
   useEffect(() => {
-    if (open && selection && !selecting)
-      rail.current?.scrollTo({ y: 0, animated: true });
-  }, [open, selecting]);
-  useEffect(() => {
     if (!recipient && recipients.data?.length === 1)
       setRecipient(recipients.data[0].id);
   }, [recipients.data, recipient]);
@@ -124,14 +136,17 @@ export function ReviewDocument({
     setNavigate(null);
   }, [mode, canvas.revision]);
   function moveToTarget() {
-    if (navigate === null || !root.current) return;
+    if (!pendingTarget.current || navigate === null || !root.current || open)
+      return;
     const candidates = [...blocks.current.values()]
       .filter((b) => b.start <= navigate && b.end > navigate)
       .sort((a, b) => a.end - a.start - (b.end - b.start));
     candidates[0]?.node.measureLayout(
       root.current,
-      (_x, y) =>
-        scroll.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }),
+      (_x, y) => {
+        pendingTarget.current = false;
+        scroll.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+      },
       () => {},
     );
   }
@@ -142,52 +157,66 @@ export function ReviewDocument({
     if (!selecting) return;
     const range = sourceRange(node);
     if (!range || !targetRanges.has(`${range.start}:${range.end}`)) return;
-    setSelection((previous) => {
-      const ranges =
-        previous?.documentRevision === canvas.revision ? previous.ranges : [];
-      const exists = ranges.some(
-        (item) => item.start === range.start && item.end === range.end,
-      );
-      const next = exists
-        ? ranges.filter(
-            (item) => item.start !== range.start || item.end !== range.end,
-          )
-        : [
-            ...ranges,
-            {
-              ...range,
-              kind: "block" as const,
-              selectedText: targetQuote(node),
-            },
-          ];
-      return next.length
+    const ranges = selectionCurrent ? selection!.ranges : [];
+    const exists = ranges.some(
+      (item) => item.start === range.start && item.end === range.end,
+    );
+    const next = exists
+      ? ranges.filter(
+          (item) => item.start !== range.start || item.end !== range.end,
+        )
+      : [
+          ...ranges,
+          { ...range, kind: "block" as const, selectedText: targetQuote(node) },
+        ];
+    selectedOrder.current = (
+      selectionCurrent ? selectedOrder.current : []
+    ).filter((start) => start !== range.start);
+    if (!exists) selectedOrder.current.push(range.start);
+    setDraftAt(selectedOrder.current.at(-1) ?? null);
+    setSelection(
+      next.length
         ? {
             documentRevision: canvas.revision,
             ranges: next.sort((a, b) => a.start - b.start),
           }
-        : null;
-    });
+        : null,
+    );
   }
-  function activate(id: string, fromBody = false, rangeIndex = 0) {
+  function returnToDocument() {
+    pendingRestore.current = true;
+    setOpen(false);
+  }
+  function activate(id: string, at?: number, rangeIndex = 0) {
+    const ranges = positions[id]?.ranges ?? [];
+    if (at !== undefined) {
+      const index = ranges.findIndex(
+        (range) =>
+          range.start !== null &&
+          range.end !== null &&
+          range.start <= at &&
+          range.end > at,
+      );
+      if (index >= 0) rangeIndex = index;
+    }
     setActive(id);
-    setOpen(true);
-    if (fromBody) {
-      setTimeout(() => {
-        const card = cards.current.get(id);
-        if (card && railRoot.current)
-          card.measureLayout(
-            railRoot.current,
-            (_x, y) => rail.current?.scrollTo({ y, animated: true }),
-            () => {},
-          );
-      }, 0);
-    } else {
-      const projection = positions[id]?.ranges[rangeIndex];
-      if (projection?.start != null) {
+    setSelecting(false);
+    setInline({ kind: "thread", id, rangeIndex });
+    const projection = ranges[rangeIndex];
+    if (projection?.start != null) {
+      setOpen(false);
+      if (at === undefined) {
+        pendingTarget.current = true;
         setNavigate(projection.start);
         setNavigationRequest((value) => value + 1);
-      }
-    }
+      } else setReveal((value) => value + 1);
+    } else setOpen(true);
+  }
+  function resumeDraft() {
+    returnToDocument();
+    setSelecting(false);
+    setInline({ kind: "new" });
+    setReveal((value) => value + 1);
   }
   async function operate(action: () => Promise<unknown>) {
     setBusy(true);
@@ -207,6 +236,17 @@ export function ReviewDocument({
     client.setQueryData([getReviews.name, scope], result);
     return result;
   }
+  function finishSelection(clearDraft: boolean) {
+    const suspended = suspendedNew.current;
+    setSelection(suspended?.selection ?? null);
+    setDraftAt(suspended?.at ?? null);
+    selectedOrder.current = suspended?.order ?? [];
+    if (clearDraft && !reattach) setDraft("");
+    suspendedNew.current = null;
+    setReattach(null);
+    setSelecting(false);
+    setInline(null);
+  }
   async function save() {
     if (!selection) return;
     const result = await operate(() =>
@@ -220,11 +260,7 @@ export function ReviewDocument({
         : change({ action: "create", selection, body: draft }),
     );
     if (result) {
-      setSelection(null);
-      setDraft("");
-      setReattach(null);
-      setSelecting(false);
-      setOpen(true);
+      finishSelection(true);
     }
   }
   function markedText(
@@ -259,7 +295,7 @@ export function ReviewDocument({
           !selecting && s.ids.length
             ? () => {
                 setChecked(s.ids);
-                activate(s.ids[0], true);
+                activate(s.ids[0], map[s.start * 2]);
               }
             : undefined
         }
@@ -377,11 +413,23 @@ export function ReviewDocument({
                 icon="MessageSquare"
                 label={`#${numbers.get(id)}`}
                 accessibilityLabel={`Open comment ${numbers.get(id)}`}
-                onPress={() => activate(id, true)}
+                onPress={() =>
+                  activate(
+                    id,
+                    positions[id]?.ranges.find(
+                      (part) =>
+                        part.start !== null &&
+                        part.end !== null &&
+                        part.start < range.end &&
+                        part.end > range.start,
+                    )?.start ?? range.start,
+                  )
+                }
               />
             ))}
           </View>
         )}
+        {inlineAt === range.start && renderInline()}
       </View>
     );
   }
@@ -448,8 +496,154 @@ export function ReviewDocument({
     (t) => checked.includes(t.id) && t.status !== "resolved",
   );
   const target = recipients.data?.find((r) => r.id === recipient);
+  const inlineOffset =
+    inline?.kind === "new"
+      ? draftAt
+      : inline?.kind === "thread"
+        ? positions[inline.id]?.ranges[inline.rangeIndex]?.start
+        : null;
+  const inlineAt =
+    inlineOffset == null
+      ? null
+      : (targets
+          .map((node) => sourceRange(node)!)
+          .find(
+            (range) => range.start <= inlineOffset && range.end > inlineOffset,
+          )?.start ?? null);
+  function renderCard(thread: ReviewThread, expanded: boolean) {
+    return (
+      <ReviewCard
+        thread={thread}
+        number={numbers.get(thread.id)!}
+        assignedName={
+          recipients.data?.find((r) => r.id === thread.assignedAgentId)?.title
+        }
+        review={review!}
+        theme={theme}
+        active={active === thread.id}
+        busy={busy}
+        checked={checked.includes(thread.id)}
+        toggle={() =>
+          setChecked((ids) =>
+            ids.includes(thread.id)
+              ? ids.filter((id) => id !== thread.id)
+              : [...ids, thread.id],
+          )
+        }
+        positionsReady={review?.documentRevision === canvas.revision}
+        navigate={(index) => activate(thread.id, undefined, index)}
+        reattach={() => {
+          if (!reattach)
+            suspendedNew.current = {
+              selection,
+              at: draftAt,
+              order: [...selectedOrder.current],
+            };
+          setReattach(thread.id);
+          setSelecting(true);
+          setOpen(false);
+          setSelection(null);
+          setInline(null);
+          selectedOrder.current = [];
+        }}
+        onError={setError}
+        change={(m) => operate(() => change(m))}
+        expanded={expanded}
+        showTargets={open}
+        draft={threadDrafts[thread.id] ?? emptyEditorDraft}
+        setDraft={(update) =>
+          setThreadDrafts((drafts) => ({
+            ...drafts,
+            [thread.id]: {
+              ...(drafts[thread.id] ?? emptyEditorDraft),
+              ...update,
+            },
+          }))
+        }
+      />
+    );
+  }
+  function renderInline() {
+    if (!inline || selecting || open) return null;
+    const thread =
+      inline.kind === "thread" ? review?.state.threads[inline.id] : null;
+    return (
+      <ReviewEntry>
+        <ToolbarButton
+          icon="X"
+          label="Close comment"
+          onPress={() => setInline(null)}
+        />
+        {inline.kind === "new" ? (
+          <>
+            {selection && (
+              <View
+                style={{
+                  gap: 8,
+                  padding: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ ...titleText, color: colors.foreground }}>
+                  {reattach ? "Reattach comment" : "New comment"}
+                </Text>
+                <ToolbarButton
+                  icon="MousePointer2"
+                  label="Change selection"
+                  onPress={() => {
+                    setSelecting(true);
+                    setInline(null);
+                    setOpen(false);
+                  }}
+                />
+                {selection.documentRevision !== canvas.revision && (
+                  <Text style={{ color: colors.statusWarning }}>
+                    Canvas changed. Select the target again; your comment is
+                    preserved.
+                  </Text>
+                )}
+                <CommentEditor
+                  theme={theme}
+                  label="Comment"
+                  value={draft}
+                  onChangeText={setDraft}
+                  placeholder="Describe the change you want"
+                  hideInput={!!reattach}
+                  actions={
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <ToolbarButton
+                        icon="Check"
+                        label={reattach ? "Reattach" : "Save comment"}
+                        onPress={() => void save()}
+                        disabled={
+                          busy ||
+                          (!reattach && !draft.trim()) ||
+                          selection.documentRevision !== canvas.revision
+                        }
+                      />
+                      <ToolbarButton
+                        icon="X"
+                        label="Cancel"
+                        onPress={() => {
+                          finishSelection(true);
+                        }}
+                      />
+                    </View>
+                  }
+                />
+              </View>
+            )}
+          </>
+        ) : thread ? (
+          renderCard(thread, true)
+        ) : null}
+      </ReviewEntry>
+    );
+  }
   const commentPanel = (
-    <View ref={railRoot} style={{ gap: 16, padding: 16 }}>
+    <View style={{ gap: 16, padding: 16 }}>
       <View
         style={{
           flexDirection: "row",
@@ -467,82 +661,6 @@ export function ReviewDocument({
           onPress={() => setShowResolved(!showResolved)}
         />
       </View>
-      {!!selection && !selecting && (
-        <View
-          style={{
-            gap: 8,
-            padding: 12,
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 8,
-          }}
-        >
-          <Text style={{ ...titleText, color: colors.foreground }}>
-            {reattach ? "Reattach comment" : "New comment"}
-          </Text>
-          {selection.ranges.map((range) => (
-            <Text
-              key={`${range.start}:${range.end}`}
-              selectable
-              numberOfLines={5}
-              style={{
-                ...metaText,
-                color: colors.foregroundMuted,
-                borderLeftWidth: 2,
-                borderColor: colors.border,
-                paddingLeft: 8,
-              }}
-            >
-              {range.selectedText}
-            </Text>
-          ))}
-          <ToolbarButton
-            icon="MousePointer2"
-            label="Change selection"
-            onPress={() => {
-              setSelecting(true);
-              setOpen(false);
-            }}
-          />
-          {!reattach && (
-            <TextInput
-              label="Comment"
-              value={draft}
-              onChangeText={setDraft}
-              multiline
-              numberOfLines={4}
-              placeholder="Describe the change you want"
-            />
-          )}
-          {selection.documentRevision !== canvas.revision && (
-            <Text style={{ color: colors.statusWarning }}>
-              Canvas changed. Select the target again; your comment is
-              preserved.
-            </Text>
-          )}
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <ToolbarButton
-              icon="Check"
-              label={reattach ? "Reattach" : "Save comment"}
-              onPress={() => void save()}
-              disabled={
-                busy ||
-                (!reattach && !draft.trim()) ||
-                selection.documentRevision !== canvas.revision
-              }
-            />
-            <ToolbarButton
-              icon="X"
-              label="Cancel"
-              onPress={() => {
-                setSelection(null);
-                setDraft("");
-                setReattach(null);
-              }}
-            />
-          </View>
-        </View>
-      )}
       {!threads.length && (
         <Text style={{ color: colors.foregroundMuted }}>
           Choose Select elements, then tap or click the elements you want to
@@ -551,43 +669,30 @@ export function ReviewDocument({
       )}
       {threads
         .filter((t) => showResolved || t.status !== "resolved")
-        .map((t) => (
-          <View
-            key={t.id}
-            ref={(node) => {
-              if (node) cards.current.set(t.id, node);
-              else cards.current.delete(t.id);
-            }}
-          >
-            <ReviewCard
-              thread={t}
-              number={numbers.get(t.id)!}
-              assignedName={
-                recipients.data?.find((r) => r.id === t.assignedAgentId)?.title
-              }
-              review={review!}
-              theme={theme}
-              active={active === t.id}
-              busy={busy}
-              checked={checked.includes(t.id)}
-              toggle={() =>
-                setChecked((ids) =>
-                  ids.includes(t.id)
-                    ? ids.filter((id) => id !== t.id)
-                    : [...ids, t.id],
+        .map((thread) => (
+          <View key={thread.id} style={{ gap: 8 }}>
+            <ToolbarButton
+              icon="MessageSquare"
+              label={`Open comment ${numbers.get(thread.id)}`}
+              onPress={() =>
+                activate(
+                  thread.id,
+                  undefined,
+                  Math.max(
+                    0,
+                    positions[thread.id]?.ranges.findIndex(
+                      (r) => r.start !== null,
+                    ) ?? 0,
+                  ),
                 )
               }
-              positionsReady={review?.documentRevision === canvas.revision}
-              navigate={(index) => activate(t.id, false, index)}
-              reattach={() => {
-                setReattach(t.id);
-                setSelecting(true);
-                setOpen(false);
-                setSelection(null);
-              }}
-              onError={setError}
-              change={(m) => operate(() => change(m))}
             />
+            {renderCard(
+              thread,
+              inline?.kind === "thread" &&
+                inline.id === thread.id &&
+                inlineAt === null,
+            )}
           </View>
         ))}
       {!!threads.length && (
@@ -737,15 +842,10 @@ export function ReviewDocument({
   );
   const errors = error ?? query.error?.message;
   return (
-    <View
-      testID="review-document"
-      style={{ flex: 1, minHeight: 0 }}
-      onLayout={(e) => {
-        const measuredWidth = e.nativeEvent.layout.width;
-        // Hidden workspace tabs have no usable width. Keep the last layout
-        // until the document is visible and can be measured again.
-        if (measuredWidth > 0) setWidth(measuredWidth);
-      }}
+    <ReviewKeyboard
+      scroll={open ? overviewScroll : scroll}
+      scrollY={open ? overviewY : scrollY}
+      reveal={reveal}
     >
       <View
         style={{
@@ -762,22 +862,38 @@ export function ReviewDocument({
         <ToolbarButton
           icon="MessageSquare"
           label={`Comments${threads.length ? ` (${threads.length})` : ""}`}
-          onPress={() => setOpen(!open)}
+          onPress={() => {
+            if (open) returnToDocument();
+            else setOpen(true);
+          }}
         />
         <ToolbarButton
           icon={selecting ? "X" : "MousePointer2"}
           label={selecting ? "Cancel selection" : "Select elements"}
           onPress={() => {
             if (selecting) {
-              setSelecting(false);
-              setSelection(null);
-              setReattach(null);
+              finishSelection(false);
             } else {
               setSelecting(true);
+              setInline(null);
               setOpen(false);
             }
           }}
         />
+        {open && (
+          <ToolbarButton
+            icon="ArrowLeft"
+            label="Back to document"
+            onPress={returnToDocument}
+          />
+        )}
+        {selection && !selecting && inline?.kind !== "new" && (
+          <ToolbarButton
+            icon="MessageSquare"
+            label="Resume comment"
+            onPress={resumeDraft}
+          />
+        )}
         {selecting && (
           <Text style={{ ...metaText, color: colors.foregroundMuted }}>
             Tap or click elements to select them. Select again to remove.
@@ -801,66 +917,73 @@ export function ReviewDocument({
           {errors}
         </Text>
       )}
-      <View
-        testID="review-panes"
+      <ScrollView
+        testID="review-body"
+        ref={scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        onScroll={(e) => {
+          if (!open) scrollY.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
+        onLayout={() => {
+          if (!open && pendingRestore.current) {
+            pendingRestore.current = false;
+            scroll.current?.scrollTo({ y: scrollY.current, animated: false });
+          }
+          moveToTarget();
+        }}
         style={{
           flex: 1,
+          minWidth: 0,
           minHeight: 0,
-          flexDirection: narrow ? "column" : "row",
+          display: open ? "none" : "flex",
+        }}
+        contentContainerStyle={{
+          padding: 16,
+          paddingBottom: selecting ? 96 : 32,
         }}
       >
-        <ScrollView
-          testID="review-body"
-          ref={scroll}
-          style={{ flex: 1, minWidth: 0, minHeight: 0 }}
-          contentContainerStyle={{
-            padding: 16,
-            paddingBottom: selecting ? 96 : 32,
+        <View
+          ref={root}
+          style={{
+            width: "100%",
+            maxWidth: mode === "preview" ? 820 : undefined,
+            alignSelf: "center",
           }}
         >
-          <View
-            ref={root}
-            style={{
-              width: "100%",
-              maxWidth: mode === "preview" ? 820 : undefined,
-              alignSelf: "center",
-            }}
-          >
-            {mode === "preview" ? (
-              <Markdown
-                document={document}
-                theme={theme}
-                workspaceId={canvas.workspaceId}
-                contentFontSize={fontSize}
-                onError={setError}
-                review={bindings}
-                onNavigate={(y) =>
-                  scroll.current?.scrollTo({ y: y + 16, animated: true })
-                }
-              />
-            ) : (
-              source()
-            )}
-          </View>
+          {inline?.kind === "new" && inlineAt === null && renderInline()}
+          {mode === "preview" ? (
+            <Markdown
+              document={document}
+              theme={theme}
+              workspaceId={canvas.workspaceId}
+              contentFontSize={fontSize}
+              onError={setError}
+              review={bindings}
+              onNavigate={(y) =>
+                scroll.current?.scrollTo({ y: y + 16, animated: true })
+              }
+            />
+          ) : (
+            source()
+          )}
+        </View>
+      </ScrollView>
+      {open && (
+        <ScrollView
+          ref={overviewScroll}
+          onScroll={(e) => {
+            overviewY.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          testID="review-overview"
+          keyboardShouldPersistTaps="handled"
+          style={{ flex: 1, minHeight: 0 }}
+        >
+          {commentPanel}
         </ScrollView>
-        {open && (
-          <View
-            testID="review-comments"
-            style={{
-              flex: narrow ? 1 : undefined,
-              width: narrow ? "100%" : 340,
-              minHeight: 0,
-              borderLeftWidth: narrow ? 0 : 1,
-              borderTopWidth: narrow ? 1 : 0,
-              borderColor: colors.border,
-            }}
-          >
-            <ScrollView ref={rail} style={{ flex: 1, minHeight: 0 }}>
-              {commentPanel}
-            </ScrollView>
-          </View>
-        )}
-      </View>
+      )}
       {selecting && selection && selectionCurrent && (
         <View
           testID="review-comment-action"
@@ -871,14 +994,11 @@ export function ReviewDocument({
             label="Comment"
             size="md"
             variant="primary"
-            onPress={() => {
-              setSelecting(false);
-              setOpen(true);
-            }}
+            onPress={resumeDraft}
           />
         </View>
       )}
-    </View>
+    </ReviewKeyboard>
   );
 }
 
@@ -897,6 +1017,10 @@ function ReviewCard({
   reattach,
   onError,
   change,
+  expanded,
+  showTargets,
+  draft,
+  setDraft,
 }: {
   thread: ReviewThread;
   number: number;
@@ -912,10 +1036,22 @@ function ReviewCard({
   reattach: () => void;
   onError: (message: string) => void;
   change: (m: ReviewMutation) => Promise<unknown>;
+  expanded: boolean;
+  showTargets: boolean;
+  draft: EditorDraft;
+  setDraft: (update: Partial<EditorDraft>) => void;
 }) {
-  const [reply, setReply] = useState("");
-  const [editing, setEditing] = useState<string | null>(null),
-    [edit, setEdit] = useState("");
+  const { reply, editing, edits } = draft;
+  const edit = editing ? (edits[editing] ?? "") : "";
+  const setReply = (reply: string) => setDraft({ reply });
+  const finishEdit = () => {
+    const remaining = { ...edits };
+    if (editing) delete remaining[editing];
+    setDraft({ editing: null, edits: remaining });
+  };
+  const setEdit = (edit: string) => {
+    if (editing) setDraft({ edits: { ...edits, [editing]: edit } });
+  };
   const colors = theme.colors,
     anchor = thread.anchors.find((a) => a.id === thread.currentAnchorId)!;
   const scope = { threadId: thread.id, expectedRevision: thread.revision };
@@ -946,43 +1082,44 @@ function ReviewCard({
           {statuses[thread.status]}
         </Text>
       </View>
-      {anchor.ranges.map((range, index) => {
-        const projection = projections?.[index];
-        return (
-          <View
-            key={`${range.start}:${range.end}`}
-            style={{
-              gap: 6,
-              borderLeftWidth: 2,
-              borderColor: colors.border,
-              paddingLeft: 8,
-            }}
-          >
-            <Text
-              selectable
-              numberOfLines={5}
-              style={{ ...metaText, color: colors.foregroundMuted }}
+      {showTargets &&
+        anchor.ranges.map((range, index) => {
+          const projection = projections?.[index];
+          return (
+            <View
+              key={`${range.start}:${range.end}`}
+              style={{
+                gap: 6,
+                borderLeftWidth: 2,
+                borderColor: colors.border,
+                paddingLeft: 8,
+              }}
             >
-              {range.selectedText}
-            </Text>
-            <ToolbarButton
-              icon="Locate"
-              label="Go to target"
-              onPress={() => navigate(index)}
-              disabled={
-                !positionsReady ||
-                projection?.start == null ||
-                !!projection.reason
-              }
-            />
-            {projection?.reason && (
-              <Text style={{ ...metaText, color: colors.statusWarning }}>
-                Outdated · {projection.reason}
+              <Text
+                selectable
+                numberOfLines={5}
+                style={{ ...metaText, color: colors.foregroundMuted }}
+              >
+                {range.selectedText}
               </Text>
-            )}
-          </View>
-        );
-      })}
+              <ToolbarButton
+                icon="Locate"
+                label="Go to target"
+                onPress={() => navigate(index)}
+                disabled={
+                  !positionsReady ||
+                  projection?.start == null ||
+                  !!projection.reason
+                }
+              />
+              {projection?.reason && (
+                <Text style={{ ...metaText, color: colors.statusWarning }}>
+                  Outdated · {projection.reason}
+                </Text>
+              )}
+            </View>
+          );
+        })}
       {thread.status !== "resolved" && (
         <ToolbarButton
           icon="MousePointer2"
@@ -1018,37 +1155,38 @@ function ReviewCard({
               ? ` · Applied at revision ${m.documentRevision}`
               : ""}
           </Text>
-          {editing === m.id ? (
+          {expanded && editing === m.id ? (
             <>
-              <TextInput
+              <CommentEditor
+                theme={theme}
                 label="Edit comment"
                 value={edit}
                 onChangeText={setEdit}
-                multiline
-                numberOfLines={3}
+                actions={
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <ToolbarButton
+                      icon="Check"
+                      label="Save"
+                      disabled={busy || !edit.trim()}
+                      onPress={() =>
+                        void change({
+                          action: "edit",
+                          ...scope,
+                          messageId: m.id,
+                          body: edit,
+                        }).then((result) => {
+                          if (result) finishEdit();
+                        })
+                      }
+                    />
+                    <ToolbarButton
+                      icon="X"
+                      label="Cancel"
+                      onPress={() => finishEdit()}
+                    />
+                  </View>
+                }
               />
-              <View style={{ flexDirection: "row", gap: 6 }}>
-                <ToolbarButton
-                  icon="Check"
-                  label="Save"
-                  disabled={busy || !edit.trim()}
-                  onPress={() =>
-                    void change({
-                      action: "edit",
-                      ...scope,
-                      messageId: m.id,
-                      body: edit,
-                    }).then((result) => {
-                      if (result) setEditing(null);
-                    })
-                  }
-                />
-                <ToolbarButton
-                  icon="X"
-                  label="Cancel"
-                  onPress={() => setEditing(null)}
-                />
-              </View>
             </>
           ) : (
             <Markdown
@@ -1059,7 +1197,8 @@ function ReviewCard({
               onError={onError}
             />
           )}
-          {thread.status !== "resolved" &&
+          {expanded &&
+            thread.status !== "resolved" &&
             m.author.role === "user" &&
             !messageLocked(review.state, m.id) && (
               <View style={{ flexDirection: "row", gap: 6 }}>
@@ -1068,8 +1207,10 @@ function ReviewCard({
                   label="Edit"
                   disabled={busy}
                   onPress={() => {
-                    setEditing(m.id);
-                    setEdit(m.body);
+                    setDraft({
+                      editing: m.id,
+                      edits: { ...edits, [m.id]: edits[m.id] ?? m.body },
+                    });
                   }}
                 />
                 <ToolbarButton
@@ -1084,26 +1225,27 @@ function ReviewCard({
             )}
         </View>
       ))}
-      {thread.status !== "resolved" && (
+      {expanded && !editing && thread.status !== "resolved" && (
         <>
-          <TextInput
+          <CommentEditor
+            theme={theme}
             label="Reply"
             value={reply}
             onChangeText={setReply}
-            multiline
-            numberOfLines={3}
             placeholder="Reply or clarify the request"
-          />
-          <ToolbarButton
-            icon="MessageSquarePlus"
-            label="Save reply"
-            disabled={busy || !reply.trim()}
-            onPress={() =>
-              void change({ action: "reply", ...scope, body: reply }).then(
-                (result) => {
-                  if (result) setReply("");
-                },
-              )
+            actions={
+              <ToolbarButton
+                icon="MessageSquarePlus"
+                label="Save reply"
+                disabled={busy || !reply.trim()}
+                onPress={() =>
+                  void change({ action: "reply", ...scope, body: reply }).then(
+                    (result) => {
+                      if (result) setReply("");
+                    },
+                  )
+                }
+              />
             }
           />
         </>

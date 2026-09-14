@@ -6,6 +6,8 @@ date: 2026-09-12
 links:
 - target: 9
   kind: amends
+- target: 11
+  kind: amendedby
 ---
 
 # Select semantic elements across devices and store one review with multiple targets

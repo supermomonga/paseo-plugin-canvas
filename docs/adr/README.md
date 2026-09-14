@@ -8,3 +8,4 @@
 * [8. Return rendering diagnostics and open canvases from plugin timeline rows](0008-return-rendering-diagnostics-and-open-canvases-from-plugin-timeline-rows.md)
 * [9. Persist source-anchored reviews and explicitly dispatch agent requests](0009-persist-source-anchored-reviews-and-explicitly-dispatch-agent-requests.md)
 * [10. Select semantic elements across devices and store one review with multiple targets](0010-select-semantic-elements-across-devices-and-store-one-review-with-multiple-targets.md)
+* [11. Place review discussions inside the document and separate the management overview](0011-place-review-discussions-inside-the-document-and-separate-the-management-overview.md)
