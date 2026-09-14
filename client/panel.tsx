@@ -117,29 +117,21 @@ function WorkspaceCanvas({
       onPress={() => setSelected(null)}
     />
   ) : (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      <ToolbarButton
-        icon={
-          listSide === "left"
-            ? listOpen
-              ? "PanelLeftClose"
-              : "PanelLeftOpen"
-            : listOpen
-              ? "PanelRightClose"
-              : "PanelRightOpen"
-        }
-        accessibilityLabel={listOpen ? "Hide canvas list" : "Show canvas list"}
-        onPress={() => setListOpen((open) => !open)}
-      />
-      <ToolbarButton
-        icon={listSide === "left" ? "PanelRight" : "PanelLeft"}
-        accessibilityLabel={`Move canvas list to ${listSide === "left" ? "right" : "left"}`}
-        onPress={() =>
-          setListSide((side) => (side === "left" ? "right" : "left"))
-        }
-      />
-    </View>
+    <ToolbarButton
+      icon={
+        listSide === "left"
+          ? listOpen
+            ? "PanelLeftClose"
+            : "PanelLeftOpen"
+          : listOpen
+            ? "PanelRightClose"
+            : "PanelRightOpen"
+      }
+      accessibilityLabel={listOpen ? "Hide canvas list" : "Show canvas list"}
+      onPress={() => setListOpen((open) => !open)}
+    />
   );
+  const navigationSide = singlePane ? "left" : listSide;
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
       {updateError && (
@@ -202,6 +194,15 @@ function WorkspaceCanvas({
                   </Text>
                 </View>
               </View>
+              {!singlePane && (
+                <ToolbarButton
+                  icon={listSide === "left" ? "PanelRight" : "PanelLeft"}
+                  accessibilityLabel={`Move canvas list to ${listSide === "left" ? "right" : "left"}`}
+                  onPress={() =>
+                    setListSide((side) => (side === "left" ? "right" : "left"))
+                  }
+                />
+              )}
             </View>
             {listError && (
               <ReadError
@@ -250,6 +251,7 @@ function WorkspaceCanvas({
                 theme={theme}
                 platform={layout.platform}
                 navigation={navigation}
+                navigationSide={navigationSide}
               />
             ) : (
               <>
@@ -263,7 +265,9 @@ function WorkspaceCanvas({
                     borderColor: colors.border,
                   }}
                 >
-                  {navigation}
+                  {navigationSide === "left" && navigation}
+                  <View style={{ flex: 1 }} />
+                  {navigationSide === "right" && navigation}
                 </View>
                 <CenteredText theme={theme}>Select a canvas</CenteredText>
               </>
@@ -352,6 +356,7 @@ function CanvasDetail({
   theme,
   platform,
   navigation,
+  navigationSide,
 }: {
   workspaceId: string;
   canvasId: string;
@@ -359,6 +364,7 @@ function CanvasDetail({
   theme: PluginTheme;
   platform: PluginWorkspacePanelProps["layout"]["platform"];
   navigation: ReactNode;
+  navigationSide: "left" | "right";
 }) {
   const colors = theme.colors;
   const toast = useToast();
@@ -385,7 +391,7 @@ function CanvasDetail({
           borderColor: colors.border,
         }}
       >
-        {navigation}
+        {navigationSide === "left" && navigation}
         <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
           <Text
             accessibilityRole="header"
@@ -445,6 +451,7 @@ function CanvasDetail({
           disabled={!canvas}
           onPress={() => setDetailsOpen(true)}
         />
+        {navigationSide === "right" && navigation}
       </View>
       <View
         style={{

@@ -366,7 +366,7 @@ test("list visibility and placement preserve the selected document and code mode
   expect(view.root.findByType(Tabs)).toBe(tabs);
   await act(async () => layout(1000));
   expect(listVisible()).toBe(false);
-  expect(button(view, "Move canvas list to left")).toBeDefined();
+  expect(button(view, "Move canvas list to left")).toBeUndefined();
   await act(async () => button(view, "Show canvas list").props.onPress());
   expect(listVisible()).toBe(true);
   expect(split().props.style.flexDirection).toBe("row-reverse");
@@ -379,17 +379,19 @@ test("list visibility and placement preserve the selected document and code mode
   await act(async () => view.unmount());
 });
 
-test("an empty workspace keeps list controls reachable while collapsed", async () => {
+test("an empty workspace keeps the list toggle reachable while collapsed", async () => {
   queries.list.data = { items: [] };
   let view!: ReactTestRenderer;
   await act(async () => {
     view = create(panel(false));
   });
-  await act(async () => button(view, "Hide canvas list").props.onPress());
   await act(async () =>
     button(view, "Move canvas list to right").props.onPress(),
   );
+  await act(async () => button(view, "Hide canvas list").props.onPress());
+  expect(button(view, "Move canvas list to left")).toBeUndefined();
   await act(async () => button(view, "Show canvas list").props.onPress());
+  expect(button(view, "Move canvas list to left")).toBeDefined();
   expect(JSON.stringify(view.toJSON())).toContain("No canvases yet");
   await act(async () => view.unmount());
 });
