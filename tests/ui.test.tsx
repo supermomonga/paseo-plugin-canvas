@@ -244,12 +244,10 @@ function panel(compact: boolean) {
   );
 }
 function button(view: ReactTestRenderer, label: string) {
-  return view.root
-    .findAllByType(Button)
-    .find(
-      (item) =>
-        item.props.label === label || item.props.accessibilityLabel === label,
-    )!;
+  const buttons = view.root.findAllByType(Button);
+  return (buttons.find(
+    (item) => (item.props.accessibilityLabel ?? item.props.label) === label,
+  ) ?? buttons.find((item) => item.props.label === label))!;
 }
 async function openCanvas(view: ReactTestRenderer) {
   await act(async () =>
@@ -1249,9 +1247,9 @@ test.each(["web", "android", "ios"])(
       view.root.findByProps({ testID: id(index) });
     expect(target(1).props.onPress).toBeUndefined();
     expect(target(1).props.accessible).toBe(false);
-    expect(button(view, "Comment")).toBeUndefined();
+    expect(button(view, "Add comment")).toBeUndefined();
     expect(button(view, "Select target")).toBeUndefined();
-    await act(async () => button(view, "Add comment").props.onPress());
+    await act(async () => button(view, "Comment mode").props.onPress());
     expect(
       view.root.findAllByProps({ accessibilityRole: "checkbox" }),
     ).toHaveLength(6);
@@ -1267,8 +1265,8 @@ test.each(["web", "android", "ios"])(
         importantForAccessibility: "no-hide-descendants",
       }),
     ).toHaveLength(1);
-    expect(button(view, "Comment").props.icon).toBe("MessageSquare");
-    expect(button(view, "Comment").props.label).toBe("Comment");
+    expect(button(view, "Add comment").props.icon).toBe("MessageSquare");
+    expect(button(view, "Add comment").props.label).toBe("Add comment");
     expect(
       view.root.findByProps({ testID: "review-comment-action" }).props.style,
     ).toMatchObject({ position: "absolute", right: 16, bottom: 16 });
@@ -1281,7 +1279,7 @@ test.each(["web", "android", "ios"])(
       view.root.findAllByProps({ accessibilityRole: "checkbox" }),
     ).toHaveLength(6);
     await act(async () => target(3).props.onPress());
-    await act(async () => button(view, "Comment").props.onPress());
+    await act(async () => button(view, "Add comment").props.onPress());
     expect(
       target(3).parent!.findAllByProps({ testID: "review-inline" }),
     ).toHaveLength(1);
@@ -1303,7 +1301,7 @@ test.each(["web", "android", "ios"])(
     await act(async () => button(view, "Change selection").props.onPress());
     await act(async () => view.update(reviewView(canvas, "preview")));
     expect(target(3).props["aria-checked"]).toBe(true);
-    await act(async () => button(view, "Comment").props.onPress());
+    await act(async () => button(view, "Add comment").props.onPress());
     reviewCalls.mockResolvedValueOnce({});
     await act(async () => button(view, "Save comment").props.onPress());
     expect(reviewCalls).toHaveBeenCalledTimes(1);
@@ -1331,16 +1329,16 @@ test("deselecting all or cancelling removes the floating action; updates require
     view = create(reviewView(canvas, "preview"));
   });
   const target = () => view.root.findByProps({ testID: "review-target-0-6" });
-  await act(async () => button(view, "Add comment").props.onPress());
+  await act(async () => button(view, "Comment mode").props.onPress());
   await act(async () => target().props.onPress());
   await act(async () => target().props.onPress());
-  expect(button(view, "Comment")).toBeUndefined();
+  expect(button(view, "Add comment")).toBeUndefined();
   await act(async () => target().props.onPress());
   await act(async () => button(view, "Cancel selection").props.onPress());
-  expect(button(view, "Comment")).toBeUndefined();
-  await act(async () => button(view, "Add comment").props.onPress());
+  expect(button(view, "Add comment")).toBeUndefined();
+  await act(async () => button(view, "Comment mode").props.onPress());
   await act(async () => target().props.onPress());
-  await act(async () => button(view, "Comment").props.onPress());
+  await act(async () => button(view, "Add comment").props.onPress());
   const input = () =>
     view.root
       .findAllByType("TextInput" as never)
@@ -1353,10 +1351,10 @@ test("deselecting all or cancelling removes the floating action; updates require
   );
   expect(button(view, "Save comment").props.disabled).toBe(true);
   await act(async () => button(view, "Change selection").props.onPress());
-  expect(button(view, "Comment")).toBeUndefined();
+  expect(button(view, "Add comment")).toBeUndefined();
   expect(target().props["aria-checked"]).toBe(false);
   await act(async () => target().props.onPress());
-  await act(async () => button(view, "Comment").props.onPress());
+  await act(async () => button(view, "Add comment").props.onPress());
   expect(input().props.value).toBe("Keep my draft");
   expect(button(view, "Save comment").props.disabled).toBe(false);
   await act(async () => view.unmount());
@@ -1426,11 +1424,11 @@ test.each(["web", "android", "ios"])(
           .findAllByType("TextInput" as never)
           .find((node) => node.props.accessibilityLabel === label)!;
       const bodyView = tree.root.findByProps({ testID: "review-body" });
-      await act(async () => button(tree, "Add comment").props.onPress());
+      await act(async () => button(tree, "Comment mode").props.onPress());
       await act(async () =>
         tree.root.findByProps({ testID: "review-target-0-16" }).props.onPress(),
       );
-      await act(async () => button(tree, "Comment").props.onPress());
+      await act(async () => button(tree, "Add comment").props.onPress());
       await act(async () => input("Comment").props.onChangeText("New draft"));
       const originalInput = input("Comment");
       for (const width of [1200, 0, 920, 919, 430, 0, 1200]) {
@@ -1467,6 +1465,12 @@ test.each(["web", "android", "ios"])(
         input("Edit comment").props.onChangeText("Other edited draft"),
       );
       await act(async () => editButtons()[0].props.onPress());
+      expect(input("Edit comment").props.value).toBe("Edited draft");
+      await act(async () => button(tree, "Close comment 1").props.onPress());
+      expect(
+        tree.root.findAllByProps({ testID: "review-inline" }),
+      ).toHaveLength(0);
+      await act(async () => button(tree, "Open comment 1").props.onPress());
       expect(input("Edit comment").props.value).toBe("Edited draft");
       expect(input("Reply")).toBeUndefined();
       await act(async () => button(tree, "Resume comment").props.onPress());
@@ -1645,11 +1649,11 @@ test.each(["web", "android", "ios"])(
         view = create(reviewView(fixture.canvas, "preview"));
       });
       expect(button(view, "Send to agent")).toBeUndefined();
-      await act(async () => button(view, "Add comment").props.onPress());
+      await act(async () => button(view, "Comment mode").props.onPress());
       await act(async () =>
         view.root.findByProps({ testID: "review-target-0-16" }).props.onPress(),
       );
-      await act(async () => button(view, "Comment").props.onPress());
+      await act(async () => button(view, "Add comment").props.onPress());
       const input = () =>
         view.root
           .findAllByType("TextInput" as never)
@@ -1884,3 +1888,130 @@ test.each(["failed", "unknown"] as const)(
     }
   },
 );
+
+test.each(["web", "android", "ios"])(
+  "%s sends one comment from either view without including other checked comments",
+  async (platform) => {
+    nativePlatform.OS = platform;
+    const fixture = await reviewSendFixture();
+    queries.recipients.data = [sendRecipients[1]];
+    let view!: ReactTestRenderer;
+    try {
+      await act(async () => {
+        view = create(reviewView(fixture.canvas, "preview"));
+      });
+      await act(async () => button(view, "Comments (2)").props.onPress());
+      await act(async () =>
+        button(view, "Select comment 1 for sending").props.onPress(),
+      );
+      for (const location of ["overview", "document"]) {
+        if (location === "document") {
+          await act(async () =>
+            button(view, "Back to document").props.onPress(),
+          );
+          await act(async () => button(view, "Open comment 2").props.onPress());
+        }
+        await act(async () =>
+          button(view, "Send comment 2 to agent").props.onPress(),
+        );
+        const dialog = view.root.findByType(ReviewSendDialog);
+        expect(dialog.props.threads.map((t: ReviewThread) => t.id)).toEqual([
+          fixture.threads[1].id,
+        ]);
+        expect(reviewCalls).not.toHaveBeenCalled();
+        await act(async () =>
+          view.root.findByType(SdkModal).props.onOpenChange(false),
+        );
+        expect(view.root.findAllByType(SdkModal)).toHaveLength(0);
+      }
+      await act(async () =>
+        button(view, "Send comment 2 to agent").props.onPress(),
+      );
+      reviewCalls.mockResolvedValueOnce(sentDelivery([fixture.threads[1]]));
+      await act(async () => button(view, "Send").props.onPress());
+      expect(reviewCalls).toHaveBeenCalledExactlyOnceWith(
+        "canvas.review.send",
+        {
+          workspaceId: fixture.canvas.workspaceId,
+          canvasId: fixture.canvas.canvasId,
+          agentId: "agent-b",
+          threads: [
+            {
+              threadId: fixture.threads[1].id,
+              expectedRevision: fixture.threads[1].revision,
+            },
+          ],
+          allowInterrupt: false,
+        },
+      );
+      expect(view.root.findAllByType(SdkModal)).toHaveLength(0);
+      await act(async () => button(view, "Send to agent").props.onPress());
+      expect(
+        view.root
+          .findByType(ReviewSendDialog)
+          .props.threads.map((t: ReviewThread) => t.id),
+      ).toEqual([fixture.threads[0].id]);
+    } finally {
+      await act(async () => view?.unmount());
+      await fixture.close();
+    }
+  },
+);
+
+test("comment badges toggle at their own target and move a shared thread to another target", async () => {
+  const fixture = await reviewSendFixture();
+  const thread = fixture.threads[0];
+  queries.review = await fixture.store.reviews.mutate(
+    fixture.canvas.workspaceId,
+    fixture.canvas.canvasId,
+    {
+      action: "reattach",
+      threadId: thread.id,
+      expectedRevision: thread.revision,
+      selection: {
+        documentRevision: fixture.canvas.revision,
+        ranges: fixture.threads.flatMap((t) =>
+          t.anchors[0].ranges.map(({ kind, start, end, selectedText }) => ({
+            kind,
+            start,
+            end,
+            selectedText,
+          })),
+        ),
+      },
+    },
+  );
+  let view!: ReactTestRenderer;
+  try {
+    await act(async () => {
+      view = create(reviewView(fixture.canvas, "preview"));
+    });
+    const target = (id: string) =>
+      view.root.findByProps({ testID: id }).parent!;
+    const first = () => target("review-target-0-16");
+    const second = () => target("review-target-18-35");
+    await act(async () => button(view, "Open comment 1").props.onPress());
+    expect(first().findAllByProps({ testID: "review-inline" })).toHaveLength(1);
+    const reply = () =>
+      view.root
+        .findAllByType("TextInput" as never)
+        .find((node) => node.props.accessibilityLabel === "Reply")!;
+    await act(async () => reply().props.onChangeText("返信の下書き"));
+    await act(async () => button(view, "Open comment 1").props.onPress());
+    expect(first().findAllByProps({ testID: "review-inline" })).toHaveLength(0);
+    expect(second().findAllByProps({ testID: "review-inline" })).toHaveLength(
+      1,
+    );
+    expect(reply().props.value).toBe("返信の下書き");
+    await act(async () => button(view, "Close comment 1").props.onPress());
+    expect(view.root.findAllByProps({ testID: "review-inline" })).toHaveLength(
+      0,
+    );
+    await act(async () => button(view, "Open comment 1").props.onPress());
+    expect(first().findAllByProps({ testID: "review-inline" })).toHaveLength(1);
+    expect(reply().props.value).toBe("返信の下書き");
+  } finally {
+    await act(async () => view?.unmount());
+    await fixture.close();
+  }
+});

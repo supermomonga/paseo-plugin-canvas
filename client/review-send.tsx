@@ -138,28 +138,38 @@ export function ReviewSendDialog({
             Select up to 50 comments per request.
           </Text>
         )}
-        <SettingsSelect
-          label="Agent session"
-          value={recipient}
-          disabled={busy || !!delivery}
-          options={[
-            { label: "Select a session", value: "" },
-            ...(recipients.data ?? []).map((item) => ({
-              value: item.id,
-              label:
-                item.title +
-                (item.blocked
-                  ? " · Permission pending"
-                  : item.running
-                    ? " · Running"
-                    : ""),
-            })),
-          ]}
-          onValueChange={(id) => {
-            setRecipient(id);
-            setInterrupt(false);
-          }}
-        />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <SettingsSelect
+              label="Agent session"
+              value={recipient}
+              disabled={busy || !!delivery}
+              options={[
+                { label: "Select a session", value: "" },
+                ...(recipients.data ?? []).map((item) => ({
+                  value: item.id,
+                  label:
+                    item.title +
+                    (item.blocked
+                      ? " · Permission pending"
+                      : item.running
+                        ? " · Running"
+                        : ""),
+                })),
+              ]}
+              onValueChange={(id) => {
+                setRecipient(id);
+                setInterrupt(false);
+              }}
+            />
+          </View>
+          <ToolbarButton
+            icon="RefreshCw"
+            accessibilityLabel="Refresh sessions"
+            onPress={() => void recipients.refetch()}
+            disabled={busy || recipients.isFetching}
+          />
+        </View>
         {recipients.isLoading && (
           <Text style={{ color: colors.foregroundMuted }}>
             Loading agent sessions…
@@ -184,12 +194,6 @@ export function ReviewSendDialog({
             retried until it is available again.
           </Text>
         )}
-        <ToolbarButton
-          icon="RefreshCw"
-          label="Refresh sessions"
-          onPress={() => void recipients.refetch()}
-          disabled={busy || recipients.isFetching}
-        />
         {target?.blocked && (
           <Text style={{ color: colors.statusWarning }}>
             Handle the pending permission in Paseo before sending.

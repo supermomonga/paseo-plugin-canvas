@@ -104,6 +104,7 @@ export function ReviewDocument({
     [showResolved, setShowResolved] = useState(false);
   const [sendDialog, setSendDialog] = useState<{
     request?: ReviewDelivery;
+    threadId?: string;
   } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export function ReviewDocument({
     scroll = useRef<NativeScrollView>(null);
   const scrollY = useRef(0);
   const overviewScroll = useRef<NativeScrollView>(null);
+  const overviewContent = useRef<View>(null);
   const overviewY = useRef(0);
   const [reveal, setReveal] = useState(0);
   const pendingTarget = useRef(false);
@@ -209,7 +211,9 @@ export function ReviewDocument({
     } else setOpen(true);
   }
   function resumeDraft() {
-    returnToDocument();
+    pendingRestore.current = false;
+    pendingTarget.current = false;
+    setOpen(false);
     setSelecting(false);
     setInline({ kind: "new" });
     setReveal((value) => value + 1);
@@ -402,26 +406,37 @@ export function ReviewDocument({
         </Pressable>
         {!selecting && !!ids.length && (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-            {ids.map((id) => (
-              <ToolbarButton
-                key={id}
-                icon="MessageSquare"
-                label={`#${numbers.get(id)}`}
-                accessibilityLabel={`Open comment ${numbers.get(id)}`}
-                onPress={() =>
-                  activate(
-                    id,
-                    positions[id]?.ranges.find(
-                      (part) =>
-                        part.start !== null &&
-                        part.end !== null &&
-                        part.start < range.end &&
-                        part.end > range.start,
-                    )?.start ?? range.start,
-                  )
-                }
-              />
-            ))}
+            {ids.map((id) => {
+              const expanded =
+                !open &&
+                inline?.kind === "thread" &&
+                inline.id === id &&
+                inlineAt === range.start;
+              return (
+                <ToolbarButton
+                  key={id}
+                  icon="MessageSquare"
+                  label={`#${numbers.get(id)}`}
+                  accessibilityLabel={`${expanded ? "Close" : "Open"} comment ${numbers.get(id)}`}
+                  onPress={() => {
+                    if (expanded) {
+                      setInline(null);
+                      setActive(null);
+                    } else
+                      activate(
+                        id,
+                        positions[id]?.ranges.find(
+                          (part) =>
+                            part.start !== null &&
+                            part.end !== null &&
+                            part.start < range.end &&
+                            part.end > range.start,
+                        )?.start ?? range.start,
+                      );
+                  }}
+                />
+              );
+            })}
           </View>
         )}
         {inlineAt === range.start && renderInline()}
@@ -524,6 +539,7 @@ export function ReviewDocument({
               : [...ids, thread.id],
           )
         }
+        send={() => setSendDialog({ threadId: thread.id })}
         positionsReady={review?.documentRevision === canvas.revision}
         navigate={(index) => activate(thread.id, undefined, index)}
         reattach={() => {
@@ -640,7 +656,11 @@ export function ReviewDocument({
     );
   }
   const commentPanel = (
-    <View style={{ gap: 20, padding: 16 }}>
+    <View
+      ref={overviewContent}
+      collapsable={false}
+      style={{ gap: 20, padding: 16, paddingBottom: showSend ? 112 : 32 }}
+    >
       <View
         style={{
           flexDirection: "row",
@@ -660,8 +680,8 @@ export function ReviewDocument({
       </View>
       {!threads.length && (
         <Text style={{ color: colors.foregroundMuted }}>
-          Choose Add comment, then tap or click the elements you want to comment
-          on.
+          Choose Comment mode, then tap or click the elements you want to
+          comment on.
         </Text>
       )}
       {threads
@@ -755,6 +775,7 @@ export function ReviewDocument({
   return (
     <ReviewKeyboard
       scroll={open ? overviewScroll : scroll}
+      content={open ? overviewContent : root}
       scrollY={open ? overviewY : scrollY}
       reveal={reveal}
     >
@@ -780,7 +801,7 @@ export function ReviewDocument({
         />
         <ToolbarButton
           icon={selecting ? "X" : "MessageSquarePlus"}
-          label={selecting ? "Cancel selection" : "Add comment"}
+          label={selecting ? "Cancel selection" : "Comment mode"}
           onPress={() => {
             if (selecting) {
               finishSelection(false);
@@ -850,35 +871,39 @@ export function ReviewDocument({
           minHeight: 0,
           display: open ? "none" : "flex",
         }}
-        contentContainerStyle={{
-          padding: 16,
-          paddingBottom: selecting || showSend ? 96 : 32,
-        }}
       >
         <View
           ref={root}
+          collapsable={false}
           style={{
-            width: "100%",
-            maxWidth: mode === "preview" ? 820 : undefined,
-            alignSelf: "center",
+            padding: 16,
+            paddingBottom: selecting || showSend ? 96 : 32,
           }}
         >
-          {inline?.kind === "new" && inlineAt === null && renderInline()}
-          {mode === "preview" ? (
-            <Markdown
-              document={document}
-              theme={theme}
-              workspaceId={canvas.workspaceId}
-              contentFontSize={fontSize}
-              onError={setError}
-              review={bindings}
-              onNavigate={(y) =>
-                scroll.current?.scrollTo({ y: y + 16, animated: true })
-              }
-            />
-          ) : (
-            source()
-          )}
+          <View
+            style={{
+              width: "100%",
+              maxWidth: mode === "preview" ? 820 : undefined,
+              alignSelf: "center",
+            }}
+          >
+            {inline?.kind === "new" && inlineAt === null && renderInline()}
+            {mode === "preview" ? (
+              <Markdown
+                document={document}
+                theme={theme}
+                workspaceId={canvas.workspaceId}
+                contentFontSize={fontSize}
+                onError={setError}
+                review={bindings}
+                onNavigate={(y) =>
+                  scroll.current?.scrollTo({ y: y + 16, animated: true })
+                }
+              />
+            ) : (
+              source()
+            )}
+          </View>
         </View>
       </ScrollView>
       {open && (
@@ -889,7 +914,6 @@ export function ReviewDocument({
           }}
           scrollEventThrottle={16}
           testID="review-overview"
-          contentContainerStyle={{ paddingBottom: showSend ? 96 : 16 }}
           keyboardShouldPersistTaps="handled"
           style={{ flex: 1, minHeight: 0 }}
         >
@@ -915,7 +939,15 @@ export function ReviewDocument({
         <ReviewSendDialog
           {...scope}
           theme={theme}
-          threads={selectedThreads}
+          threads={
+            sendDialog.threadId
+              ? threads.filter(
+                  (thread) =>
+                    thread.id === sendDialog.threadId &&
+                    thread.status !== "resolved",
+                )
+              : selectedThreads
+          }
           numbers={numbers}
           request={sendDialog.request}
           onClose={() => setSendDialog(null)}
@@ -932,7 +964,7 @@ export function ReviewDocument({
         >
           <Button
             icon="MessageSquare"
-            label="Comment"
+            label="Add comment"
             size="md"
             variant="primary"
             onPress={resumeDraft}
@@ -952,6 +984,7 @@ function ReviewCard({
   busy,
   checked,
   toggle,
+  send,
   navigate,
   positionsReady,
   reattach,
@@ -970,6 +1003,7 @@ function ReviewCard({
   busy: boolean;
   checked: boolean;
   toggle: () => void;
+  send: () => void;
   navigate: (rangeIndex: number) => void;
   positionsReady: boolean;
   reattach: () => void;
@@ -1010,12 +1044,21 @@ function ReviewCard({
         }}
       >
         {thread.status !== "resolved" && (
-          <ToolbarButton
-            icon={checked ? "CheckSquare" : "Square"}
-            label="Select for sending"
-            accessibilityLabel={`Select comment ${number} for sending`}
-            onPress={toggle}
-          />
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <ToolbarButton
+              icon={checked ? "CheckSquare" : "Square"}
+              label="Select for sending"
+              accessibilityLabel={`Select comment ${number} for sending`}
+              onPress={toggle}
+            />
+            <ToolbarButton
+              icon="Send"
+              label="Send"
+              accessibilityLabel={`Send comment ${number} to agent`}
+              disabled={busy}
+              onPress={send}
+            />
+          </View>
         )}
         <Text
           style={{

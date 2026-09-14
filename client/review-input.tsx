@@ -41,11 +41,13 @@ const InputContext = createContext({
 export function ReviewKeyboard({
   children,
   scroll,
+  content,
   scrollY,
   reveal,
 }: {
   children: ReactNode;
   scroll: MutableRefObject<NativeScrollView | null>;
+  content: MutableRefObject<View | null>;
   scrollY: MutableRefObject<number>;
   reveal: number;
 }) {
@@ -54,53 +56,91 @@ export function ReviewKeyboard({
   const [height, setHeight] = useState(600);
   const entry = useRef<View | null>(null);
   const focused = useRef<View | null>(null);
-  const pending = useRef(false);
+  const pending = useRef<{ purpose: "entry" | "focus" } | null>(null);
+  const measuring = useRef<typeof pending.current>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousReveal = useRef(reveal);
   const ensureVisible = useCallback(() => {
-    const node = focused.current ?? entry.current;
+    const request = pending.current;
+    const node = request?.purpose === "entry" ? entry.current : focused.current;
     const viewport = scroll.current;
-    if (!pending.current || !node || !viewport) return;
-    viewport.getNativeScrollRef()?.measureInWindow((_x, top, _w, available) => {
-      if (available <= 0) return;
+    const relativeTo = content.current;
+    const nativeViewport = viewport?.getNativeScrollRef();
+    if (
+      !request ||
+      measuring.current === request ||
+      !node ||
+      !viewport ||
+      !nativeViewport ||
+      !relativeTo
+    )
+      return;
+    measuring.current = request;
+    const current = () =>
+      pending.current === request &&
+      viewport === scroll.current &&
+      relativeTo === content.current &&
+      node === (request.purpose === "entry" ? entry.current : focused.current);
+    nativeViewport.measureInWindow((_x, _top, _w, available) => {
+      if (!current()) return;
+      if (available <= 0) {
+        measuring.current = null;
+        return;
+      }
       setHeight(available);
-      node.measureInWindow((_nx, y, _nw, h) => {
-        if (h <= 0 || node !== (focused.current ?? entry.current)) return;
-        pending.current = false;
-        // Large discussions open at their beginning. A focused editor includes
-        // its action row, so saving never requires a keyboard-dismissal tap.
-        const delta =
-          h + 16 > available || y < top + 8
-            ? y - top - 8
-            : y + h > top + available - 8
-              ? y + h - top - available + 8
-              : 0;
-        if (delta) {
-          scrollY.current = Math.max(0, scrollY.current + delta);
-          viewport.scrollTo({ y: scrollY.current, animated: true });
-        }
-      });
+      // Measure in scroll-content coordinates. Window coordinates plus a
+      // predicted scroll offset can accumulate the same movement while an
+      // earlier animated scroll or asynchronous measurement is still pending.
+      node.measureLayout(
+        relativeTo,
+        (_nx, y, _nw, h) => {
+          if (!current()) return;
+          measuring.current = null;
+          if (h <= 0) return;
+          pending.current = null;
+          const top = scrollY.current;
+          const destination =
+            h + 16 > available || y < top + 8
+              ? y - 8
+              : y + h > top + available - 8
+                ? y + h - available + 8
+                : top;
+          if (destination !== top)
+            viewport.scrollTo({
+              y: Math.max(0, destination),
+              animated: true,
+            });
+        },
+        () => {
+          if (current()) measuring.current = null;
+        },
+      );
     });
-  }, [scroll, scrollY]);
-  const request = useCallback(() => {
-    pending.current = true;
-    if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = setTimeout(ensureVisible, 0);
-  }, [ensureVisible]);
+  }, [scroll, content, scrollY]);
+  const request = useCallback(
+    (purpose: "entry" | "focus" = "focus") => {
+      pending.current = { purpose };
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = setTimeout(ensureVisible, 0);
+    },
+    [ensureVisible],
+  );
   const focus = useCallback(
     (node: View | null) => {
       focused.current = node;
       if (node) request();
+      else if (pending.current?.purpose === "focus") pending.current = null;
     },
     [request],
   );
   const registerEntry = useCallback((node: View | null) => {
     entry.current = node;
+    if (!node && pending.current?.purpose === "entry") pending.current = null;
   }, []);
   useEffect(() => {
     if (previousReveal.current !== reveal) {
       previousReveal.current = reveal;
-      request();
+      request("entry");
     }
   }, [reveal, request]);
   useEffect(() => {
@@ -118,6 +158,7 @@ export function ReviewKeyboard({
   }, [request]);
   useEffect(
     () => () => {
+      pending.current = null;
       if (timer.current !== null) clearTimeout(timer.current);
     },
     [],
@@ -186,6 +227,7 @@ export function ReviewEntry({
     <View
       ref={node}
       testID="review-inline"
+      collapsable={false}
       style={{ marginVertical: 20 }}
       onLayout={layout}
     >
@@ -267,6 +309,7 @@ export function CommentEditor({
     <View
       ref={form}
       testID="review-editor"
+      collapsable={false}
       style={{ gap: 8 }}
       onLayout={context.layout}
     >
