@@ -167,9 +167,18 @@ export function ReviewKeyboard({
   );
 }
 
-export function ReviewEntry({ children }: { children: ReactNode }) {
+export function ReviewEntry({
+  theme,
+  header,
+  children,
+}: {
+  theme: PluginTheme;
+  header: ReactNode;
+  children: ReactNode;
+}) {
   const node = useRef<View>(null);
   const { entry, layout } = useContext(InputContext);
+  const colors = theme.colors;
   useEffect(() => {
     entry(node.current);
     return () => entry(null);
@@ -178,10 +187,32 @@ export function ReviewEntry({ children }: { children: ReactNode }) {
     <View
       ref={node}
       testID="review-inline"
-      style={{ marginVertical: 12, gap: 8 }}
+      style={{
+        marginVertical: 20,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderLeftWidth: 3,
+        borderLeftColor: colors.accent,
+        borderRadius: 8,
+        backgroundColor: colors.surface1,
+        overflow: "hidden",
+      }}
       onLayout={layout}
     >
-      {children}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          padding: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          backgroundColor: colors.surface2,
+        }}
+      >
+        {header}
+      </View>
+      <View style={{ padding: 12 }}>{children}</View>
     </View>
   );
 }

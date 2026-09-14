@@ -1231,7 +1231,7 @@ test.each(["web", "android", "ios"])(
     expect(target(1).props.accessible).toBe(false);
     expect(button(view, "Comment")).toBeUndefined();
     expect(button(view, "Select target")).toBeUndefined();
-    await act(async () => button(view, "Select elements").props.onPress());
+    await act(async () => button(view, "Add comment").props.onPress());
     expect(
       view.root.findAllByProps({ accessibilityRole: "checkbox" }),
     ).toHaveLength(6);
@@ -1311,14 +1311,14 @@ test("deselecting all or cancelling removes the floating action; updates require
     view = create(reviewView(canvas, "preview"));
   });
   const target = () => view.root.findByProps({ testID: "review-target-0-6" });
-  await act(async () => button(view, "Select elements").props.onPress());
+  await act(async () => button(view, "Add comment").props.onPress());
   await act(async () => target().props.onPress());
   await act(async () => target().props.onPress());
   expect(button(view, "Comment")).toBeUndefined();
   await act(async () => target().props.onPress());
   await act(async () => button(view, "Cancel selection").props.onPress());
   expect(button(view, "Comment")).toBeUndefined();
-  await act(async () => button(view, "Select elements").props.onPress());
+  await act(async () => button(view, "Add comment").props.onPress());
   await act(async () => target().props.onPress());
   await act(async () => button(view, "Comment").props.onPress());
   const input = () =>
@@ -1406,7 +1406,7 @@ test.each(["web", "android", "ios"])(
           .findAllByType("TextInput" as never)
           .find((node) => node.props.accessibilityLabel === label)!;
       const bodyView = tree.root.findByProps({ testID: "review-body" });
-      await act(async () => button(tree, "Select elements").props.onPress());
+      await act(async () => button(tree, "Add comment").props.onPress());
       await act(async () =>
         tree.root.findByProps({ testID: "review-target-0-16" }).props.onPress(),
       );

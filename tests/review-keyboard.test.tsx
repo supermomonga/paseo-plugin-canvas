@@ -65,7 +65,7 @@ test.each(["android", "ios"])(
     const render = (value = "") => (
       <ReviewKeyboard scroll={scroll} scrollY={scrollY} reveal={0}>
         <ScrollView ref={scroll}>
-          <ReviewEntry>
+          <ReviewEntry theme={theme} header="New comment">
             <CommentEditor
               theme={theme}
               label="Comment"

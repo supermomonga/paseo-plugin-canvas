@@ -568,27 +568,30 @@ export function ReviewDocument({
     const thread =
       inline.kind === "thread" ? review?.state.threads[inline.id] : null;
     return (
-      <ReviewEntry>
-        <ToolbarButton
-          icon="X"
-          label="Close comment"
-          onPress={() => setInline(null)}
-        />
+      <ReviewEntry
+        theme={theme}
+        header={
+          <>
+            <Icon name="MessageSquare" size={18} color={colors.accent} />
+            <Text style={{ ...titleText, flex: 1, color: colors.foreground }}>
+              {inline.kind === "new"
+                ? reattach
+                  ? "Reattach comment"
+                  : "New comment"
+                : "Comment"}
+            </Text>
+            <ToolbarButton
+              icon="X"
+              accessibilityLabel="Close comment"
+              onPress={() => setInline(null)}
+            />
+          </>
+        }
+      >
         {inline.kind === "new" ? (
           <>
             {selection && (
-              <View
-                style={{
-                  gap: 8,
-                  padding: 12,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ ...titleText, color: colors.foreground }}>
-                  {reattach ? "Reattach comment" : "New comment"}
-                </Text>
+              <View style={{ gap: 8 }}>
                 <ToolbarButton
                   icon="MousePointer2"
                   label="Change selection"
@@ -663,8 +666,8 @@ export function ReviewDocument({
       </View>
       {!threads.length && (
         <Text style={{ color: colors.foregroundMuted }}>
-          Choose Select elements, then tap or click the elements you want to
-          comment on.
+          Choose Add comment, then tap or click the elements you want to comment
+          on.
         </Text>
       )}
       {threads
@@ -868,8 +871,8 @@ export function ReviewDocument({
           }}
         />
         <ToolbarButton
-          icon={selecting ? "X" : "MousePointer2"}
-          label={selecting ? "Cancel selection" : "Select elements"}
+          icon={selecting ? "X" : "MessageSquarePlus"}
+          label={selecting ? "Cancel selection" : "Add comment"}
           onPress={() => {
             if (selecting) {
               finishSelection(false);
@@ -1059,9 +1062,9 @@ function ReviewCard({
   return (
     <View
       style={{
-        padding: 12,
+        padding: showTargets ? 12 : 0,
         gap: 10,
-        borderWidth: 1,
+        borderWidth: showTargets ? 1 : 0,
         borderColor: active ? colors.accent : colors.border,
         borderRadius: 8,
         backgroundColor: colors.surface1,
