@@ -9,3 +9,4 @@
 * [9. Persist source-anchored reviews and explicitly dispatch agent requests](0009-persist-source-anchored-reviews-and-explicitly-dispatch-agent-requests.md)
 * [10. Select semantic elements across devices and store one review with multiple targets](0010-select-semantic-elements-across-devices-and-store-one-review-with-multiple-targets.md)
 * [11. Place review discussions inside the document and separate the management overview](0011-place-review-discussions-inside-the-document-and-separate-the-management-overview.md)
+* [12. Share review selection and agent dispatch across document and overview](0012-share-review-selection-and-agent-dispatch-across-document-and-overview.md)

@@ -178,7 +178,6 @@ export function ReviewEntry({
 }) {
   const node = useRef<View>(null);
   const { entry, layout } = useContext(InputContext);
-  const colors = theme.colors;
   useEffect(() => {
     entry(node.current);
     return () => entry(null);
@@ -187,8 +186,30 @@ export function ReviewEntry({
     <View
       ref={node}
       testID="review-inline"
+      style={{ marginVertical: 20 }}
+      onLayout={layout}
+    >
+      <ReviewSurface theme={theme} header={header}>
+        {children}
+      </ReviewSurface>
+    </View>
+  );
+}
+
+/** Shared framing for discussions in the document and the comments overview. */
+export function ReviewSurface({
+  theme,
+  header,
+  children,
+}: {
+  theme: PluginTheme;
+  header: ReactNode;
+  children: ReactNode;
+}) {
+  const colors = theme.colors;
+  return (
+    <View
       style={{
-        marginVertical: 20,
         borderWidth: 1,
         borderColor: colors.border,
         borderLeftWidth: 3,
@@ -197,7 +218,6 @@ export function ReviewEntry({
         backgroundColor: colors.surface1,
         overflow: "hidden",
       }}
-      onLayout={layout}
     >
       <View
         style={{

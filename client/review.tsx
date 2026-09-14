@@ -13,7 +13,6 @@ import {
   type ScrollView as NativeScrollView,
 } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { SettingsSelect } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Button, useRpcQuery, getClientHost } from "paseo-plugin-helper/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,14 +22,13 @@ import {
   getReviews,
   mutateReview,
   getReviewRecipients,
-  sendReview,
-  retryReview,
   messageLocked,
   unsentMessages,
   type ReviewSelection,
   type ReviewMutation,
   type ReviewResult,
   type ReviewThread,
+  type ReviewDelivery,
 } from "../shared/review";
 import {
   reviewTargets,
@@ -44,9 +42,12 @@ import {
   CommentEditor,
   ReviewKeyboard,
   ReviewEntry,
+  ReviewSurface,
   type EditorDraft,
   emptyEditorDraft,
 } from "./review-input";
+
+import { ReviewSendDialog } from "./review-send";
 
 const statuses = {
   needs_agent_review: "Needs agent review",
@@ -70,9 +71,7 @@ export function ReviewDocument({
   const colors = theme.colors,
     client = useQueryClient(),
     host = getClientHost();
-  const mutate = host.useRpc(mutateReview),
-    send = host.useRpc(sendReview),
-    retry = host.useRpc(retryReview);
+  const mutate = host.useRpc(mutateReview);
   const query = useRpcQuery(getReviews, scope, { retry: false });
   const recipients = useRpcQuery(
     getReviewRecipients,
@@ -103,8 +102,9 @@ export function ReviewDocument({
     [active, setActive] = useState<string | null>(null);
   const [checked, setChecked] = useState<string[]>([]),
     [showResolved, setShowResolved] = useState(false);
-  const [recipient, setRecipient] = useState(""),
-    [interrupt, setInterrupt] = useState(false);
+  const [sendDialog, setSendDialog] = useState<{
+    request?: ReviewDelivery;
+  } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
   const [navigate, setNavigate] = useState<number | null>(null);
@@ -128,10 +128,6 @@ export function ReviewDocument({
     }),
   );
   const selectionCurrent = selection?.documentRevision === canvas.revision;
-  useEffect(() => {
-    if (!recipient && recipients.data?.length === 1)
-      setRecipient(recipients.data[0].id);
-  }, [recipients.data, recipient]);
   useEffect(() => {
     setNavigate(null);
   }, [mode, canvas.revision]);
@@ -294,7 +290,6 @@ export function ReviewDocument({
         onPress={
           !selecting && s.ids.length
             ? () => {
-                setChecked(s.ids);
                 activate(s.ids[0], map[s.start * 2]);
               }
             : undefined
@@ -495,7 +490,7 @@ export function ReviewDocument({
   const selectedThreads = threads.filter(
     (t) => checked.includes(t.id) && t.status !== "resolved",
   );
-  const target = recipients.data?.find((r) => r.id === recipient);
+  const showSend = !selecting && selectedThreads.length > 0;
   const inlineOffset =
     inline?.kind === "new"
       ? draftAt
@@ -520,7 +515,6 @@ export function ReviewDocument({
         }
         review={review!}
         theme={theme}
-        active={active === thread.id}
         busy={busy}
         checked={checked.includes(thread.id)}
         toggle={() =>
@@ -578,7 +572,7 @@ export function ReviewDocument({
                 ? reattach
                   ? "Reattach comment"
                   : "New comment"
-                : "Comment"}
+                : `Comment #${numbers.get(inline.id)}`}
             </Text>
             <ToolbarButton
               icon="X"
@@ -646,7 +640,7 @@ export function ReviewDocument({
     );
   }
   const commentPanel = (
-    <View style={{ gap: 16, padding: 16 }}>
+    <View style={{ gap: 20, padding: 16 }}>
       <View
         style={{
           flexDirection: "row",
@@ -673,122 +667,44 @@ export function ReviewDocument({
       {threads
         .filter((t) => showResolved || t.status !== "resolved")
         .map((thread) => (
-          <View key={thread.id} style={{ gap: 8 }}>
-            <ToolbarButton
-              icon="MessageSquare"
-              label={`Open comment ${numbers.get(thread.id)}`}
-              onPress={() =>
-                activate(
-                  thread.id,
-                  undefined,
-                  Math.max(
-                    0,
-                    positions[thread.id]?.ranges.findIndex(
-                      (r) => r.start !== null,
-                    ) ?? 0,
-                  ),
-                )
-              }
-            />
+          <ReviewSurface
+            key={thread.id}
+            theme={theme}
+            header={
+              <>
+                <Icon name="MessageSquare" size={18} color={colors.accent} />
+                <Text
+                  style={{ ...titleText, flex: 1, color: colors.foreground }}
+                >
+                  Comment #{numbers.get(thread.id)}
+                </Text>
+                <ToolbarButton
+                  icon="ArrowRight"
+                  accessibilityLabel={`Open comment ${numbers.get(thread.id)}`}
+                  onPress={() =>
+                    activate(
+                      thread.id,
+                      undefined,
+                      Math.max(
+                        0,
+                        positions[thread.id]?.ranges.findIndex(
+                          (r) => r.start !== null,
+                        ) ?? 0,
+                      ),
+                    )
+                  }
+                />
+              </>
+            }
+          >
             {renderCard(
               thread,
               inline?.kind === "thread" &&
                 inline.id === thread.id &&
                 inlineAt === null,
             )}
-          </View>
+          </ReviewSurface>
         ))}
-      {!!threads.length && (
-        <View
-          style={{
-            gap: 10,
-            borderTopWidth: 1,
-            borderColor: colors.border,
-            paddingTop: 12,
-          }}
-        >
-          <SettingsSelect
-            label="Agent session"
-            value={recipient}
-            options={[
-              { label: "Select a session", value: "" },
-              ...(recipients.data ?? []).map((r) => ({
-                value: r.id,
-                label:
-                  r.title +
-                  (r.blocked
-                    ? " · Permission pending"
-                    : r.running
-                      ? " · Running"
-                      : ""),
-              })),
-            ]}
-            onValueChange={(id) => {
-              setRecipient(id);
-              setInterrupt(false);
-            }}
-          />
-          {recipients.error && (
-            <Text style={{ color: colors.statusDanger }}>
-              {recipients.error.message}
-            </Text>
-          )}
-          {recipients.data?.length === 0 && (
-            <Text style={{ color: colors.foregroundMuted }}>
-              No sessions with Canvas MCP are available in this workspace.
-            </Text>
-          )}
-          <ToolbarButton
-            icon="RefreshCw"
-            label="Refresh sessions"
-            onPress={() => void recipients.refetch()}
-            disabled={recipients.isFetching}
-          />
-          {target?.blocked && (
-            <Text style={{ color: colors.statusWarning }}>
-              Handle the pending permission in Paseo before sending.
-            </Text>
-          )}
-          {target?.running && (
-            <>
-              <Text style={{ color: colors.statusWarning }}>
-                Sending may interrupt this session's current work.
-              </Text>
-              <ToolbarButton
-                icon={interrupt ? "CheckSquare" : "Square"}
-                label="Allow interruption"
-                onPress={() => setInterrupt(!interrupt)}
-              />
-            </>
-          )}
-          <ToolbarButton
-            icon="Send"
-            label={`Send ${selectedThreads.length} selected`}
-            disabled={
-              busy ||
-              !recipient ||
-              !selectedThreads.length ||
-              !!target?.blocked ||
-              (!!target?.running && !interrupt)
-            }
-            onPress={() =>
-              void operate(async () => {
-                const delivery = await send({
-                  ...scope,
-                  agentId: recipient,
-                  threads: selectedThreads.map((t) => ({
-                    threadId: t.id,
-                    expectedRevision: t.revision,
-                  })),
-                  allowInterrupt: interrupt,
-                });
-                if (delivery.attempts.at(-1)?.status === "accepted")
-                  setChecked([]);
-              })
-            }
-          />
-        </View>
-      )}
       {Object.values(review?.state.deliveries ?? {}).map((d) => {
         const last = d.attempts.at(-1)!;
         return (
@@ -827,15 +743,7 @@ export function ReviewDocument({
                     : "Retry request"
                 }
                 disabled={busy}
-                onPress={() =>
-                  void operate(() =>
-                    retry({
-                      ...scope,
-                      requestId: d.id,
-                      allowInterrupt: interrupt,
-                    }),
-                  )
-                }
+                onPress={() => setSendDialog({ request: d })}
               />
             )}
           </View>
@@ -944,7 +852,7 @@ export function ReviewDocument({
         }}
         contentContainerStyle={{
           padding: 16,
-          paddingBottom: selecting ? 96 : 32,
+          paddingBottom: selecting || showSend ? 96 : 32,
         }}
       >
         <View
@@ -981,11 +889,41 @@ export function ReviewDocument({
           }}
           scrollEventThrottle={16}
           testID="review-overview"
+          contentContainerStyle={{ paddingBottom: showSend ? 96 : 16 }}
           keyboardShouldPersistTaps="handled"
           style={{ flex: 1, minHeight: 0 }}
         >
           {commentPanel}
         </ScrollView>
+      )}
+      {showSend && (
+        <View
+          testID="review-send-action"
+          style={{ position: "absolute", right: 16, bottom: 16 }}
+        >
+          <Button
+            icon="Send"
+            label="Send to agent"
+            size="md"
+            variant="primary"
+            disabled={busy}
+            onPress={() => setSendDialog({})}
+          />
+        </View>
+      )}
+      {sendDialog && (
+        <ReviewSendDialog
+          {...scope}
+          theme={theme}
+          threads={selectedThreads}
+          numbers={numbers}
+          request={sendDialog.request}
+          onClose={() => setSendDialog(null)}
+          onRecorded={() => void query.refetch()}
+          onSent={(ids) =>
+            setChecked((checked) => checked.filter((id) => !ids.includes(id)))
+          }
+        />
       )}
       {selecting && selection && selectionCurrent && (
         <View
@@ -1011,7 +949,6 @@ function ReviewCard({
   assignedName,
   review,
   theme,
-  active,
   busy,
   checked,
   toggle,
@@ -1030,7 +967,6 @@ function ReviewCard({
   assignedName?: string;
   review: ReviewResult;
   theme: PluginTheme;
-  active: boolean;
   busy: boolean;
   checked: boolean;
   toggle: () => void;
@@ -1062,26 +998,33 @@ function ReviewCard({
   return (
     <View
       style={{
-        padding: showTargets ? 12 : 0,
         gap: 10,
-        borderWidth: showTargets ? 1 : 0,
-        borderColor: active ? colors.accent : colors.border,
-        borderRadius: 8,
-        backgroundColor: colors.surface1,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
         {thread.status !== "resolved" && (
           <ToolbarButton
             icon={checked ? "CheckSquare" : "Square"}
+            label="Select for sending"
             accessibilityLabel={`Select comment ${number} for sending`}
             onPress={toggle}
           />
         )}
-        <Text style={{ ...titleText, flex: 1, color: colors.foreground }}>
-          #{number}
-        </Text>
-        <Text style={{ ...metaText, color: colors.foregroundMuted }}>
+        <Text
+          style={{
+            ...metaText,
+            flex: 1,
+            textAlign: "right",
+            color: colors.foregroundMuted,
+          }}
+        >
           {statuses[thread.status]}
         </Text>
       </View>

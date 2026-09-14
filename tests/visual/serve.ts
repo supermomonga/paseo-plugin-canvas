@@ -55,8 +55,54 @@ const server = createServer(async (req, res) => {
           input.canvasId,
           input.mutation,
         );
-      else if (name === "canvas.review.recipients") result = [];
-      else throw new Error("Unknown fixture RPC");
+      else if (name === "canvas.review.recipients")
+        result = [
+          {
+            id: "preview-agent",
+            title: "Preview agent (simulated)",
+            running: false,
+            blocked: false,
+          },
+          {
+            id: "running-agent",
+            title: "Running agent (simulated)",
+            running: true,
+            blocked: false,
+          },
+          {
+            id: "blocked-agent",
+            title: "Permission pending (simulated)",
+            running: false,
+            blocked: true,
+          },
+        ];
+      // Exercise persistence and UI transitions without sending to a real agent.
+      else if (
+        name === "canvas.review.send" ||
+        name === "canvas.review.retry"
+      ) {
+        const delivery =
+          name === "canvas.review.send"
+            ? await store.reviews.begin(
+                input.workspaceId,
+                input.canvasId,
+                input.agentId,
+                input.threads,
+              )
+            : await store.reviews.retry(
+                input.workspaceId,
+                input.canvasId,
+                input.requestId,
+              );
+        result = await store.reviews.finish(
+          input.workspaceId,
+          input.canvasId,
+          delivery.id,
+          delivery.attempts.at(-1)!.id,
+          "accepted",
+          null,
+        );
+      } else throw new Error("Unknown fixture RPC");
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(result));
       return;

@@ -6,6 +6,8 @@ date: 2026-09-12
 links:
 - target: 10
   kind: amends
+- target: 12
+  kind: amendedby
 ---
 
 # Place review discussions inside the document and separate the management overview

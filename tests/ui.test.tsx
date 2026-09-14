@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { CanvasStore } from "../server/store";
 import { Modal as SdkModal } from "@getpaseo/plugin/client/react-native";
-vi.mock("@getpaseo/plugin/client/ui", () => ({ SettingsSelect: () => null }));
+vi.mock("@getpaseo/plugin/client/ui", () => ({
+  SettingsSelect: (props: object) =>
+    React.createElement("SettingsSelect", props),
+}));
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
   useQueryClient: () => ({ setQueryData: () => {} }),
@@ -77,6 +80,16 @@ vi.mock("@getpaseo/plugin/client/react-native", () => ({
 }));
 const queries = vi.hoisted(() => ({
   review: undefined as import("../shared/review").ReviewResult | undefined,
+  reviewRefetch: vi.fn(),
+  recipients: {
+    data: [] as
+      | { id: string; title: string; running: boolean; blocked: boolean }[]
+      | undefined,
+    error: null as Error | null,
+    isFetching: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  },
   inputs: vi.fn(),
   list: {
     data: { items: [] as unknown[] } as { items: unknown[] } | undefined,
@@ -102,12 +115,13 @@ vi.mock("paseo-plugin-helper/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("paseo-plugin-helper/client")>()),
   useRpcQuery: (contract: { name: string }, input: unknown) => {
     queries.inputs(contract.name, input);
+    if (contract.name === "canvas.review.recipients") return queries.recipients;
     if (contract.name.startsWith("canvas.review."))
       return {
         data:
           contract.name === "canvas.review.get" ? queries.review : undefined,
         error: null,
-        refetch: vi.fn(),
+        refetch: queries.reviewRefetch,
         isFetching: false,
       };
     return contract.name === "canvas.list"
@@ -134,6 +148,9 @@ initClientHelpers({
 import { parseDocument } from "../server/document";
 import { Markdown, safeLink } from "../client/markdown";
 import { ReviewDocument } from "../client/review";
+import { ReviewSendDialog } from "../client/review-send";
+import { ReviewSurface } from "../client/review-input";
+import type { ReviewDelivery, ReviewThread } from "../shared/review";
 import { reviewTargets, sourceRange } from "../shared/review-targets";
 import type { Canvas } from "../shared/contracts";
 import { CanvasPanel } from "../client/panel";
@@ -202,6 +219,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   nativePlatform.OS = "web";
   queries.review = undefined;
+  queries.recipients.data = [];
+  queries.recipients.error = null;
+  queries.recipients.isFetching = queries.recipients.isLoading = false;
   queries.list.data = {
     items: [summary, { ...summary, canvasId: "canvas-b", title: "メモ" }],
   };
@@ -1529,3 +1549,338 @@ test("repeated Go to target opens a details ancestor that the user closed", asyn
   expect(button(view, "Collapse More")).toBeDefined();
   await act(async () => view.unmount());
 });
+
+async function reviewSendFixture() {
+  const directory = await mkdtemp(path.join(tmpdir(), "canvas-send-ui-"));
+  const store = await CanvasStore.open(directory);
+  const actor = {
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    sessionId: "session-a",
+    title: "Test agent",
+  };
+  const created = await store.create(
+    actor,
+    "Review",
+    "First paragraph.\n\nSecond paragraph.",
+  );
+  const { canvas } = await store.get(actor.workspaceId, created.canvasId);
+  for (const [start, body] of [
+    [0, "First request"],
+    [18, "Second request"],
+  ] as const) {
+    queries.review = await store.reviews.mutate(
+      actor.workspaceId,
+      canvas.canvasId,
+      {
+        action: "create",
+        selection: {
+          documentRevision: 1,
+          ranges: [
+            {
+              kind: "block",
+              start,
+              end: start + (start ? 17 : 16),
+              selectedText: canvas.content.slice(
+                start,
+                start + (start ? 17 : 16),
+              ),
+            },
+          ],
+        },
+        body,
+      },
+    );
+  }
+  return {
+    canvas,
+    store,
+    threads: Object.values(queries.review!.state.threads),
+    close: async () => {
+      await store.close();
+      await rm(directory, { recursive: true, force: true });
+    },
+  };
+}
+const sendRecipients = [
+  { id: "agent-a", title: "First agent", running: false, blocked: false },
+  { id: "agent-b", title: "Second agent", running: false, blocked: false },
+];
+function sentDelivery(
+  threads: ReviewThread[],
+  status: ReviewDelivery["attempts"][number]["status"] = "accepted",
+): ReviewDelivery {
+  return {
+    id: "request-a",
+    agentId: "agent-b",
+    createdAt: threads[0].createdAt,
+    prompt: "Review request",
+    threads: threads.map((thread) => ({
+      threadId: thread.id,
+      threadRevision: thread.revision,
+      anchor: thread.anchors[0],
+      messages: thread.messages,
+    })),
+    attempts: [
+      {
+        id: "attempt-a",
+        status,
+        startedAt: threads[0].createdAt,
+        finishedAt: threads[0].createdAt,
+        error: status === "failed" ? "Agent unavailable" : null,
+      },
+    ],
+  };
+}
+
+test.each(["web", "android", "ios"])(
+  "%s sends a shared selection from the overview and document without losing drafts",
+  async (platform) => {
+    nativePlatform.OS = platform;
+    const fixture = await reviewSendFixture();
+    queries.recipients.data = sendRecipients;
+    let view!: ReactTestRenderer;
+    try {
+      await act(async () => {
+        view = create(reviewView(fixture.canvas, "preview"));
+      });
+      expect(button(view, "Send to agent")).toBeUndefined();
+      await act(async () => button(view, "Add comment").props.onPress());
+      await act(async () =>
+        view.root.findByProps({ testID: "review-target-0-16" }).props.onPress(),
+      );
+      await act(async () => button(view, "Comment").props.onPress());
+      const input = () =>
+        view.root
+          .findAllByType("TextInput" as never)
+          .find((node) => node.props.accessibilityLabel === "Comment")!;
+      await act(async () => input().props.onChangeText("Keep this draft"));
+      await act(async () => button(view, "Comments (2)").props.onPress());
+      expect(
+        view.root
+          .findByProps({ testID: "review-overview" })
+          .findAllByType(ReviewSurface),
+      ).toHaveLength(2);
+      expect(view.root.findAllByType("SettingsSelect" as never)).toHaveLength(
+        0,
+      );
+      await act(async () =>
+        button(view, "Select comment 1 for sending").props.onPress(),
+      );
+      await act(async () =>
+        button(view, "Select comment 2 for sending").props.onPress(),
+      );
+      expect(
+        view.root.findByProps({ testID: "review-send-action" }),
+      ).toBeDefined();
+      await act(async () => button(view, "Send to agent").props.onPress());
+      expect(view.root.findByType(SdkModal).props.title).toBe("Send to agent");
+      expect(JSON.stringify(view.toJSON())).toContain("Selected comments");
+      expect(button(view, "Send").props.disabled).toBeTruthy();
+      expect(reviewCalls).not.toHaveBeenCalled();
+      await act(async () =>
+        view.root.findByType(SdkModal).props.onOpenChange(false),
+      );
+      expect(button(view, "Select comment 1 for sending").props.icon).toBe(
+        "CheckSquare",
+      );
+      await act(async () => button(view, "Back to document").props.onPress());
+      expect(input().props.value).toBe("Keep this draft");
+      // Reading another discussion must not replace the sending selection.
+      await act(async () =>
+        view.root
+          .findAllByType("Text" as never)
+          .find(
+            (node) =>
+              node.props.onPress && node.props.children === "First paragraph.",
+          )!
+          .props.onPress(),
+      );
+      await act(async () => button(view, "Resume comment").props.onPress());
+      expect(input().props.value).toBe("Keep this draft");
+      await act(async () => button(view, "Send to agent").props.onPress());
+      await act(async () =>
+        view.root
+          .findByType("SettingsSelect" as never)
+          .props.onValueChange("agent-b"),
+      );
+      expect(button(view, "Send").props.disabled).toBeFalsy();
+      reviewCalls.mockResolvedValueOnce(sentDelivery(fixture.threads));
+      await act(async () => button(view, "Send").props.onPress());
+      expect(reviewCalls).toHaveBeenCalledExactlyOnceWith(
+        "canvas.review.send",
+        {
+          workspaceId: fixture.canvas.workspaceId,
+          canvasId: fixture.canvas.canvasId,
+          agentId: "agent-b",
+          threads: fixture.threads.map((thread) => ({
+            threadId: thread.id,
+            expectedRevision: thread.revision,
+          })),
+          allowInterrupt: false,
+        },
+      );
+      expect(view.root.findAllByType(SdkModal)).toHaveLength(0);
+      expect(button(view, "Send to agent")).toBeUndefined();
+      expect(input().props.value).toBe("Keep this draft");
+      expect(host.show).toHaveBeenCalledWith("Comments sent to agent", {
+        variant: "success",
+      });
+      expect(queries.reviewRefetch).toHaveBeenCalledOnce();
+      await act(async () => button(view, "Open comment 1").props.onPress());
+      await act(async () =>
+        button(view, "Select comment 1 for sending").props.onPress(),
+      );
+      expect(button(view, "Send to agent")).toBeDefined();
+      await act(async () =>
+        button(view, "Select comment 1 for sending").props.onPress(),
+      );
+      expect(button(view, "Send to agent")).toBeUndefined();
+    } finally {
+      await act(async () => view?.unmount());
+      await fixture.close();
+    }
+  },
+);
+
+test("send dialog handles unavailable recipients, interruption consent, errors, and duplicate taps", async () => {
+  const fixture = await reviewSendFixture();
+  const onClose = vi.fn(),
+    onSent = vi.fn(),
+    onRecorded = vi.fn();
+  let view!: ReactTestRenderer;
+  const render = () => (
+    <PluginThemeProvider theme={theme}>
+      <ReviewSendDialog
+        workspaceId={fixture.canvas.workspaceId}
+        canvasId={fixture.canvas.canvasId}
+        theme={theme}
+        threads={fixture.threads}
+        numbers={new Map(fixture.threads.map((t, i) => [t.id, i + 1]))}
+        onClose={onClose}
+        onSent={onSent}
+        onRecorded={onRecorded}
+      />
+    </PluginThemeProvider>
+  );
+  try {
+    await act(async () => {
+      view = create(render());
+    });
+    expect(JSON.stringify(view.toJSON())).toContain(
+      "No sessions with Canvas MCP",
+    );
+    expect(button(view, "Send").props.disabled).toBeTruthy();
+    queries.recipients.error = new Error("Recipients offline");
+    await act(async () => view.update(render()));
+    expect(JSON.stringify(view.toJSON())).toContain("Recipients offline");
+    await act(async () => button(view, "Refresh sessions").props.onPress());
+    expect(queries.recipients.refetch).toHaveBeenCalledOnce();
+    queries.recipients.error = null;
+    queries.recipients.data = [
+      { ...sendRecipients[0], running: true },
+      { ...sendRecipients[1], blocked: true },
+    ];
+    await act(async () => view.update(render()));
+    const select = () => view.root.findByType("SettingsSelect" as never);
+    await act(async () => select().props.onValueChange("agent-a"));
+    expect(button(view, "Send").props.disabled).toBeTruthy();
+    await act(async () => button(view, "Allow interruption").props.onPress());
+    expect(button(view, "Send").props.disabled).toBeFalsy();
+    await act(async () => select().props.onValueChange("agent-b"));
+    expect(button(view, "Send").props.disabled).toBeTruthy();
+    expect(JSON.stringify(view.toJSON())).toContain("pending permission");
+    await act(async () => select().props.onValueChange("agent-a"));
+    expect(button(view, "Send").props.disabled).toBeTruthy();
+    await act(async () => button(view, "Allow interruption").props.onPress());
+    reviewCalls.mockRejectedValueOnce(new Error("Session state changed"));
+    await act(async () => button(view, "Send").props.onPress());
+    expect(JSON.stringify(view.toJSON())).toContain("Session state changed");
+    expect(onClose).not.toHaveBeenCalled();
+    let finish!: (result: ReviewDelivery) => void;
+    reviewCalls.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const submit = button(view, "Send").props.onPress;
+    await act(async () => {
+      submit();
+      submit();
+    });
+    expect(reviewCalls).toHaveBeenCalledTimes(2);
+    expect(button(view, "Sending…").props.disabled).toBeTruthy();
+    expect(select().props.disabled).toBe(true);
+    await act(async () =>
+      view.root.findByType(SdkModal).props.onOpenChange(false),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => finish(sentDelivery(fixture.threads)));
+    expect(reviewCalls.mock.calls.at(-1)?.[1]).toMatchObject({
+      agentId: "agent-a",
+      allowInterrupt: true,
+    });
+    expect(onSent).toHaveBeenCalledWith(fixture.threads.map((t) => t.id));
+    expect(onClose).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => view?.unmount());
+    await fixture.close();
+  }
+});
+
+test.each(["failed", "unknown"] as const)(
+  "%s send result stays in the dialog and retries the recorded request explicitly",
+  async (status) => {
+    const fixture = await reviewSendFixture();
+    queries.recipients.data = [sendRecipients[1]];
+    const onClose = vi.fn(),
+      onSent = vi.fn(),
+      onRecorded = vi.fn();
+    let view!: ReactTestRenderer;
+    try {
+      await act(async () => {
+        view = create(
+          <PluginThemeProvider theme={theme}>
+            <ReviewSendDialog
+              workspaceId={fixture.canvas.workspaceId}
+              canvasId={fixture.canvas.canvasId}
+              theme={theme}
+              threads={fixture.threads}
+              numbers={new Map(fixture.threads.map((t, i) => [t.id, i + 1]))}
+              onClose={onClose}
+              onSent={onSent}
+              onRecorded={onRecorded}
+            />
+          </PluginThemeProvider>,
+        );
+      });
+      reviewCalls.mockResolvedValueOnce(sentDelivery(fixture.threads, status));
+      await act(async () => button(view, "Send").props.onPress());
+      expect(onClose).not.toHaveBeenCalled();
+      expect(onSent).not.toHaveBeenCalled();
+      expect(
+        view.root.findByType("SettingsSelect" as never).props.disabled,
+      ).toBe(true);
+      const label =
+        status === "unknown" ? "Retry (may send twice)" : "Retry request";
+      expect(button(view, label)).toBeDefined();
+      expect(reviewCalls).toHaveBeenCalledOnce();
+      reviewCalls.mockResolvedValueOnce(sentDelivery(fixture.threads));
+      await act(async () => button(view, label).props.onPress());
+      expect(reviewCalls.mock.calls.at(-1)).toEqual([
+        "canvas.review.retry",
+        {
+          workspaceId: fixture.canvas.workspaceId,
+          canvasId: fixture.canvas.canvasId,
+          requestId: "request-a",
+          allowInterrupt: false,
+        },
+      ]);
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => view?.unmount());
+      await fixture.close();
+    }
+  },
+);

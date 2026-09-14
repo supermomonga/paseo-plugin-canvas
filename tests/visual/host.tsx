@@ -27,6 +27,7 @@ import {
   Scan,
   Maximize2,
   ArrowLeft,
+  ArrowRight,
   Lightbulb,
   MessageSquareWarning,
   TriangleAlert,
@@ -84,6 +85,7 @@ const icons = {
   Scan,
   Maximize2,
   ArrowLeft,
+  ArrowRight,
   Lightbulb,
   MessageSquareWarning,
   TriangleAlert,
@@ -199,8 +201,14 @@ export const copyText = async (_text: string) => {};
 export function FixtureToast() {
   const [message, setMessage] = useState("");
   useEffect(() => {
-    notify = setMessage;
+    let timer: ReturnType<typeof setTimeout>;
+    notify = (message) => {
+      clearTimeout(timer);
+      setMessage(message);
+      timer = setTimeout(() => setMessage(""), 2200);
+    };
     return () => {
+      clearTimeout(timer);
       notify = undefined;
     };
   }, []);
@@ -227,18 +235,25 @@ export function SettingsSelect({
   value,
   options,
   onValueChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
   options: readonly { label: string; value: string }[];
   onValueChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { colors } = usePluginTheme();
   return (
     <View style={{ gap: 8 }}>
       <Text style={{ color: colors.foregroundMuted }}>{label}</Text>
-      <Pressable onPress={() => setOpen(!open)}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        disabled={disabled}
+        onPress={() => setOpen(!open)}
+      >
         <Text
           style={{
             color: colors.foreground,
@@ -254,6 +269,9 @@ export function SettingsSelect({
         options.map((o) => (
           <Pressable
             key={o.value}
+            accessibilityRole="button"
+            accessibilityLabel={o.label}
+            disabled={disabled}
             onPress={() => {
               onValueChange(o.value);
               setOpen(false);
