@@ -201,14 +201,19 @@ test("GFM renders table, tasks, strikethrough and code as native text; HTML rema
   await act(async () => view.unmount());
 });
 const summary = {
+  schemaVersion: 2,
+  workspaceId: "workspace-a",
+  createdAt: "2026-09-11T09:00:00Z",
+  updatedAt: "2026-09-11T09:00:00Z",
+  updatedBy: { role: "agent", agentId: "agent-a" },
   canvasId: "canvas-a",
   title: "実装プラン",
   revision: 2,
   editState: {
     status: "locked",
     lock: {
-      ownerAgentId: "agent-a",
-      ownerAgentTitle: "Agent A",
+      owner: { role: "agent", agentId: "agent-a" },
+      ownerTitle: "Agent A",
       acquiredAt: "2026-09-11T09:00:00Z",
       renewedAt: "2026-09-11T09:01:00Z",
       expiresAt: "2026-09-11T09:05:00Z",
@@ -1201,14 +1206,14 @@ test("activity delivery runs without a panel, pauses in background, retries, and
 
 function reviewCanvas(content: string): Canvas {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workspaceId: "workspace-a",
     canvasId: "canvas-a",
     title: "Review",
     revision: 1,
     createdAt: "2026-09-12T00:00:00Z",
     updatedAt: "2026-09-12T00:00:00Z",
-    updatedByAgentId: "agent-a",
+    updatedBy: { role: "agent", agentId: "agent-a" },
     editState: { status: "unlocked" },
     content,
   };
@@ -2073,3 +2078,55 @@ test.each(["web", "android", "ios"])(
     }
   },
 );
+
+test.each(["web", "ios", "android"])("canvas creation keeps title and Markdown across preview and layout changes (%s)", async (platform) => {
+  nativePlatform.OS = platform;
+  let view!: ReactTestRenderer;
+  reviewCalls.mockImplementation(async (name, input) => {
+    if (name === "canvas.user.preview") return { document: parseDocument((input as { content: string }).content) };
+    return undefined;
+  });
+  await act(async () => { view = create(panel(false)); });
+  await act(async () => button(view, "New canvas").props.onPress());
+  expect(button(view, "Save").props.disabled).toBe(true);
+  const input = (label: string) => view.root.findAllByType("TextInput" as never).find((node) => node.props.accessibilityLabel === label)!;
+  await act(async () => {
+    input("Canvas title").props.onChangeText("My canvas");
+    input("Canvas Markdown content").props.onChangeText("# My draft");
+  });
+  expect(button(view, "Save").props.disabled).toBe(false);
+  await act(async () => button(view, "Preview").props.onPress());
+  expect(JSON.stringify(view.toJSON())).toContain("My draft");
+  await act(async () => { view.update(panel(true)); });
+  await act(async () => button(view, "Markdown").props.onPress());
+  expect(input("Canvas title").props.value).toBe("My canvas");
+  expect(input("Canvas Markdown content").props.value).toBe("# My draft");
+  expect(reviewCalls.mock.calls.some(([name]) => name === "canvas.user.create")).toBe(false);
+  await act(async () => button(view, "Cancel").props.onPress());
+  expect(view.root.findAllByType(SdkModal).some((node) => node.props.open && node.props.title === "Discard changes?")).toBe(true);
+  await act(async () => button(view, "Keep editing").props.onPress());
+  expect(input("Canvas Markdown content").props.value).toBe("# My draft");
+  await act(async () => view.unmount());
+});
+
+test("canvas editing refreshes a lease on foreground and releases it on unmount", async () => {
+  const canvas = { ...summary, editState: { status: "unlocked" }, content: "Original" };
+  queries.detail.data = { canvas, document: parseDocument("Original") };
+  const acquired = { ...canvas, editState: { status: "locked", lock: { id: "user-lock", owner: { role: "user" }, ownerTitle: null, acquiredAt: new Date().toISOString(), renewedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString() } } };
+  reviewCalls.mockImplementation(async (name) => {
+    if (name === "canvas.user.begin") return { ok: true, value: { canvas: acquired, lockToken: "secret" } };
+    if (name === "canvas.user.renew") return { ok: true, value: { editState: acquired.editState } };
+    if (name === "canvas.user.cancel") return { ok: true, value: { editState: { status: "unlocked" } } };
+    return undefined;
+  });
+  let view!: ReactTestRenderer;
+  await act(async () => { view = create(panel(false)); });
+  await act(async () => button(view, "Edit").props.onPress());
+  expect(JSON.stringify(view.toJSON())).toContain("Edit canvas");
+  expect(button(view, "Save").props.disabled).toBe(true);
+  await act(async () => lifecycle.listener?.("background"));
+  await act(async () => lifecycle.listener?.("active"));
+  expect(reviewCalls.mock.calls.some(([name]) => name === "canvas.user.renew")).toBe(true);
+  await act(async () => view.unmount());
+  expect(reviewCalls.mock.calls.some(([name, input]) => name === "canvas.user.cancel" && (input as { lockToken: string }).lockToken === "secret")).toBe(true);
+});

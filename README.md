@@ -1,6 +1,6 @@
 # paseo-canvas
 
-**Shared Markdown documents for agents in the same Paseo workspace.**
+**Shared Markdown documents for people and agents in the same Paseo workspace.**
 
 Let one agent write an implementation plan and another read it in a separate session. Keep multiple canvases per workspace, preview them in Paseo, and persist them outside your project directory.
 
@@ -17,7 +17,7 @@ Let one agent write an implementation plan and another read it in a separate ses
 - **Persistent storage:** documents survive restarts without creating files in the project tree.
 - **Paseo integration:** a shared React Native UI built with public SDK components and `paseo-plugin-helper`, adapting to wide and compact panels.
 
-Document content is **read-only** in the panel; agents create and edit canvases through MCP. Users can select content and write review comments. Plugin UI, notifications, and errors are in English. Document content can use any language.
+Users can create, edit and delete documents in the panel, sharing the same exclusive edit locks with agents using MCP. Users can also select content and write review comments. Plugin UI, notifications, and errors are in English. Document content can use any language.
 
 ## Get started
 
@@ -56,7 +56,7 @@ If upgrading from the earlier implementation that required a core patch, create 
 ## Usage
 
 1. Open a Paseo workspace and choose **Open Canvas** from the Command Center.
-2. In a newly created agent session, ask: “Create a Markdown canvas named Implementation plan with the proposed steps and verification checklist.”
+2. Choose **New canvas**, enter a title and Markdown content, and press **Save**. Alternatively, in a newly created agent session, ask: “Create a Markdown canvas named Implementation plan with the proposed steps and verification checklist.”
 3. Read the result in **Preview**, or switch to **Code** to inspect and copy the original Markdown.
 4. Start another agent in the **same workspace** and ask it to read the canvas and implement the plan.
 
@@ -64,9 +64,19 @@ Both agents see the same documents. Editing ownership remains visible, and chang
 
 On Android and iOS, use the notebook icon in the workspace header to open Canvas. Paseo 0.8.0 does not list plugin panels in its mobile Workspace actions menu; the header button provides a direct entry point.
 
-Creating or editing a canvas adds a row to the editing agent's timeline. **Open canvas** opens its workspace panel and selects that document, including when the panel is closed. It opens the latest saved content; the revision in the row describes the save that produced the notification. Deleted documents show a deletion message.
+Creating or editing a canvas through MCP adds a row to the editing agent's timeline. **Open canvas** opens its workspace panel and selects that document, including when the panel is closed. It opens the latest saved content; the revision in the row describes the save that produced the notification. Deleted documents show a deletion message.
 
 Timeline delivery runs while a Paseo client has the plugin loaded and the app is active, independently of the Canvas panel. Pending notifications are stored on the daemon and retried after reconnecting. **Paseo 0.8.0 does not preserve appended plugin rows across daemon restarts.** Already delivered rows are not replayed; canvases remain available from the workspace panel. This uses public timeline/panel APIs, without custom URL handlers or a core patch.
+
+### Editing as a user
+
+Choose **Edit** to acquire a five-minute lease and edit the latest title and Markdown. The editor renews the lease every minute while the app is active. **Preview** renders the unsaved draft; **Markdown** returns to the input. **Save** increments the revision once and releases the lease. An unchanged document cannot be saved. New canvases require a title (up to 240 characters) and nonblank content (up to 1,000,000 characters); no document exists until Save succeeds.
+
+**Cancel** and navigation to another canvas confirm before discarding unsaved changes and release the lease without saving. Drafts survive preview and responsive layout changes, but remain in memory. App termination loses drafts; an unavailable client can hold a lease until it expires.
+
+If renewal fails, saving pauses and the draft remains. **Reacquire lock** resumes only if the saved revision still matches. Otherwise copy the draft and cancel to review the latest version. Failed or unconfirmed saves never retry automatically. An unconfirmed save may already have succeeded: check the latest canvases before starting another save or creation.
+
+**Delete** shows the canvas title and confirms permanent removal of the document and all reviews. A changed revision or an active editor prevents deletion. User saves are attributed to **User**, without inventing an agent or human account identity, and do not append agent timeline rows. Other viewers continue reading the latest saved content while editing is in progress.
 
 ## Markdown support
 
@@ -165,9 +175,11 @@ Data lives on the **Paseo daemon host**, outside the project directory.
 
 The host key is a SHA-256 hash of the canonical `PASEO_HOME` path, defaulting to `~/.paseo`. Moving that home requires migrating the associated documents and `mcp.json` together.
 
-Markdown files store identity, revision, timestamps, and attribution in YAML frontmatter; APIs and source view expose the body without this metadata. Writes require a temporary file, synchronization, atomic replacement, and directory synchronization. Corrupt data and uncertain durable writes produce errors instead of empty replacement documents.
+Markdown files use schemaVersion 2 and store identity, revision, timestamps, and `updatedBy` attribution (`user` or `agent` with `agentId`) in YAML frontmatter; APIs and source view expose the body without this metadata. Writes require a temporary file, synchronization, atomic replacement, and directory synchronization. Corrupt data and uncertain durable writes produce errors instead of empty replacement documents.
 
 A `proper-lockfile` lease gives one plugin process ownership of the storage area. After a crash, the owner lease becomes stale after 30 seconds; startup waits for recovery. Local disks are the storage model. Concurrent external editing and network shares are unsupported.
+
+Version 1 canvas metadata must be converted once by an operator with the plugin stopped and storage backed up before loading this version. The plugin does not migrate data or accept old-format metadata. Conversion must preserve document bodies, IDs, timestamps, revisions and review artifacts.
 
 Documents survive plugin/daemon restarts and workspace archival. **Edit leases are memory-only and expire on restart.** MCP bindings are persisted separately.
 
@@ -225,13 +237,13 @@ This check compiles the production client with Paseo's release compiler and eval
 
 Checks performed on macOS with Node.js 22 include:
 
-- Automated storage, corruption, locking, workspace isolation, HTTP MCP, rendering, and automatic-update tests.
+- Automated storage, corruption, locking, workspace isolation, HTTP MCP, rendering, and automatic-update tests. User editing tests cover typed RPCs, user/agent conflicts, fresh acquisition snapshots, save-and-release, cancelled navigation, lease loss/reacquisition, uncertain saves, deletion and existing review tracking.
 - Review tests cover durable snapshots, source tracking, stale edits, assignment, explicit dispatch and unknown send results. Web, Android and iOS component tests cover semantic multi-selection, last-selected placement, one inline discussion, overview navigation, zero-width hidden tabs, badge toggling, independent single-comment dispatch and draft retention across view changes. Keyboard geometry tests cover revealing both the input and actions without overriding later manual scrolling, overlapping asynchronous measurements and cancellation of stale results.
 - The browser fixture uses temporary storage for desktop/430px selection, inline creation, overview navigation, replies and edits. The installed Paseo plugin was reloaded successfully and inline editor placement was checked in Electron. Browser height reduction verified that a focused editor and its save action remain visible; this does not replace native IME verification. Physical Android/iOS IME and gesture checks remain unverified.
 - Unmodified Paseo 0.8.0 compilation, hook validation, `AgentManager`, and a custom provider fixture exercising stored-agent resume after normal exit and forced process termination.
 - Before review tools were added, the production bundle with real Codex 0.154.0: eight-tool discovery in two agents, HTTP sharing/lock conflicts, plugin-restart recovery, and no Canvas registration in a separate launch using the same isolated home. No LLM prompt was sent.
-- Hermes from React Native 0.81.5 executing the release-compiled client and shared-code probes with stubbed host services.
-- Desktop/390px browser layouts and light/dark themes. Mocked native checks do not establish real-device behavior.
+- Hermes from React Native 0.81.5 executing the release-compiled client and shared-code probes, including user drafts and discard confirmation, with stubbed host services.
+- Desktop/390px browser layouts and light/dark themes. The editing fixture verifies creation, preview and layout draft retention, revision 1 → 2 with release, delete cancellation and permanent deletion. The installed Paseo app verifies migrated document/review display, edit acquisition and cancellation without revision changes. Mocked native checks do not establish real-device behavior.
 
 > [!NOTE]
 > Physical iOS/Android devices, Claude/OpenCode runtime connections, external native resume of the same conversation, and end-to-end operation in the user's installed Paseo app remain unverified. Linux/Windows storage durability is also unverified; Windows environments without directory synchronization support fail rather than silently weaken durability.

@@ -1,8 +1,8 @@
 const state = {
   status: "locked",
   lock: {
-    ownerAgentId: "agent-a",
-    ownerAgentTitle: "Agent A",
+    owner: { role: "agent", agentId: "agent-a" },
+    ownerTitle: "Agent A",
     acquiredAt: "2026-09-11T09:00:00Z",
     renewedAt: "2026-09-11T09:01:00Z",
     expiresAt: "2026-09-11T09:05:00Z",
@@ -32,7 +32,7 @@ const longTitle = {
     ...state,
     lock: {
       ...state.lock,
-      ownerAgentTitle: "長い名前のエージェント・実装と検証を担当するセッション",
+      ownerTitle: "長い名前のエージェント・実装と検証を担当するセッション",
     },
   },
 };

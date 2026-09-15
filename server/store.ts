@@ -14,7 +14,9 @@ import {
   contentSchema,
   idSchema,
   titleSchema,
-  type Actor,
+  actorEditor,
+  type EditActor,
+  type UserActor,
   type EditState,
   type Metadata,
   type PublicLock,
@@ -29,6 +31,7 @@ type Lock = {
   token: string;
   sessionId: string;
   deadline: number;
+  actor: EditActor;
 };
 export const LOCK_TTL_MS = 300_000;
 const MAX_FILE_BYTES = 4_100_000;
@@ -314,20 +317,20 @@ export class CanvasStore {
       };
     });
   }
-  async create(actor: Actor, title: string, content: string) {
+  async create(actor: EditActor, title: string, content: string) {
     const canvasId = randomUUID(),
       key = this.key(actor.workspaceId, canvasId);
     return this.serial(key, async () => {
       const timestamp = new Date(this.clock()).toISOString();
       const metadata: Metadata = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         workspaceId: actor.workspaceId,
         canvasId,
         title: titleSchema.parse(title),
         revision: 1,
         createdAt: timestamp,
         updatedAt: timestamp,
-        updatedByAgentId: idSchema.parse(actor.agentId),
+        updatedBy: actorEditor(actor),
       };
       await this.write(key, metadata, contentSchema.parse(content));
       this.changed(key);
@@ -336,7 +339,7 @@ export class CanvasStore {
   }
   private verify(
     key: string,
-    actor: Actor,
+    actor: EditActor,
     token: string,
     metadata: Metadata,
     revision?: number,
@@ -347,7 +350,7 @@ export class CanvasStore {
       !lock ||
       lock.token !== token ||
       lock.sessionId !== actor.sessionId ||
-      lock.info.ownerAgentId !== actor.agentId ||
+      JSON.stringify(lock.info.owner) !== JSON.stringify(actorEditor(actor)) ||
       (revision !== undefined && metadata.revision !== revision)
     ) {
       throw new CanvasError(
@@ -358,10 +361,17 @@ export class CanvasStore {
     }
     return lock;
   }
-  async acquire(actor: Actor, canvasId: string) {
+  async acquire(actor: EditActor, canvasId: string) {
+    const { canvas: _canvas, ...lease } = await this.acquireWithCanvas(
+      actor,
+      canvasId,
+    );
+    return lease;
+  }
+  private async acquireWithCanvas(actor: EditActor, canvasId: string) {
     const key = this.key(actor.workspaceId, canvasId);
     return this.serial(key, async () => {
-      const { metadata } = await this.read(key),
+      const { metadata, content } = await this.read(key),
         now = this.clock();
       if (this.state(key, now).status === "locked")
         throw new CanvasError("LOCKED", "Canvas is already being edited", {
@@ -371,8 +381,8 @@ export class CanvasStore {
       const timestamp = new Date(now).toISOString();
       const info: PublicLock = {
         id: randomUUID(),
-        ownerAgentId: actor.agentId,
-        ownerAgentTitle: actor.title,
+        owner: actorEditor(actor),
+        ownerTitle: "role" in actor ? null : actor.title,
         acquiredAt: timestamp,
         renewedAt: timestamp,
         expiresAt: new Date(now + LOCK_TTL_MS).toISOString(),
@@ -382,6 +392,7 @@ export class CanvasStore {
         info,
         token,
         sessionId: actor.sessionId,
+        actor,
         deadline: this.monotonic() + LOCK_TTL_MS,
       });
       this.scheduleExpiry();
@@ -390,10 +401,11 @@ export class CanvasStore {
         editState: { status: "locked" as const, lock: { ...info } },
         lockToken: token,
         revision: metadata.revision,
+        canvas: { ...metadata, content, editState: this.state(key, now) },
       };
     });
   }
-  async renew(actor: Actor, canvasId: string, token: string) {
+  async renew(actor: EditActor, canvasId: string, token: string) {
     const key = this.key(actor.workspaceId, canvasId);
     return this.serial(key, async () => {
       const { metadata } = await this.read(key),
@@ -407,7 +419,7 @@ export class CanvasStore {
       return { editState: this.state(key, now) };
     });
   }
-  async releaseLock(actor: Actor, canvasId: string, token: string) {
+  async releaseLock(actor: EditActor, canvasId: string, token: string) {
     const key = this.key(actor.workspaceId, canvasId);
     return this.serial(key, async () => {
       const { metadata } = await this.read(key);
@@ -419,7 +431,7 @@ export class CanvasStore {
     });
   }
   async update(
-    actor: Actor,
+    actor: EditActor,
     input: {
       canvasId: string;
       lockToken: string;
@@ -427,6 +439,7 @@ export class CanvasStore {
       title?: string;
       content?: string;
     },
+    releaseOnSave = false,
   ) {
     const key = this.key(actor.workspaceId, input.canvasId);
     return this.serial(key, async () => {
@@ -446,13 +459,17 @@ export class CanvasStore {
             : titleSchema.parse(input.title),
         revision: previous.metadata.revision + 1,
         updatedAt: new Date(this.clock()).toISOString(),
-        updatedByAgentId: actor.agentId,
+        updatedBy: actorEditor(actor),
       };
       const content =
         input.content === undefined
           ? previous.content
           : contentSchema.parse(input.content);
       await this.write(key, metadata, content);
+      if (releaseOnSave) {
+        this.locks.delete(key);
+        this.scheduleExpiry();
+      }
       this.changed(key);
       return {
         canvasId: input.canvasId,
@@ -462,7 +479,7 @@ export class CanvasStore {
     });
   }
   async delete(
-    actor: Actor,
+    actor: EditActor,
     input: { canvasId: string; lockToken: string; expectedRevision: number },
   ) {
     const key = this.key(actor.workspaceId, input.canvasId);
@@ -475,20 +492,97 @@ export class CanvasStore {
         metadata,
         input.expectedRevision,
       );
-      await unlink(this.filename(key));
-      try {
-        await this.syncDirectory(path.dirname(this.filename(key)));
-      } catch (error) {
-        this.stop(
-          new Error("Canvas deletion durability could not be confirmed"),
+      return this.remove(key, actor.workspaceId, input.canvasId);
+    });
+  }
+  private async remove(key: string, workspaceId: string, canvasId: string) {
+    await unlink(this.filename(key));
+    try {
+      await this.syncDirectory(path.dirname(this.filename(key)));
+    } catch (error) {
+      this.stop(new Error("Canvas deletion durability could not be confirmed"));
+      throw error;
+    }
+    this.locks.delete(key);
+    this.scheduleExpiry();
+    this.changed(key);
+    await this.reviews.remove(workspaceId, canvasId);
+    return { deleted: true as const };
+  }
+  beginUserEdit(workspaceId: string, canvasId: string) {
+    return this.acquireWithCanvas(
+      { role: "user", workspaceId, sessionId: randomUUID() },
+      canvasId,
+    );
+  }
+  private userActor(
+    workspaceId: string,
+    canvasId: string,
+    token: string,
+  ): UserActor {
+    const key = this.key(workspaceId, canvasId);
+    this.state(key);
+    const lock = this.locks.get(key);
+    if (!lock || lock.token !== token || !("role" in lock.actor))
+      throw new CanvasError(
+        "CONFLICT",
+        "Your edit lock has expired or is no longer available",
+      );
+    return lock.actor;
+  }
+  createUser(workspaceId: string, title: string, content: string) {
+    if (!content.trim())
+      throw new CanvasError("INVALID_INPUT", "Enter canvas content");
+    return this.create(
+      { role: "user", workspaceId, sessionId: randomUUID() },
+      title,
+      content,
+    );
+  }
+  renewUser(workspaceId: string, canvasId: string, token: string) {
+    return this.renew(
+      this.userActor(workspaceId, canvasId, token),
+      canvasId,
+      token,
+    );
+  }
+  cancelUser(workspaceId: string, canvasId: string, token: string) {
+    return this.releaseLock(
+      this.userActor(workspaceId, canvasId, token),
+      canvasId,
+      token,
+    );
+  }
+  saveUser(
+    workspaceId: string,
+    input: {
+      canvasId: string;
+      lockToken: string;
+      expectedRevision: number;
+      title: string;
+      content: string;
+    },
+  ) {
+    return this.update(
+      this.userActor(workspaceId, input.canvasId, input.lockToken),
+      input,
+      true,
+    );
+  }
+  deleteUser(workspaceId: string, canvasId: string, expectedRevision: number) {
+    const key = this.key(workspaceId, canvasId);
+    // The queue reserves the document for this entire deletion; no other
+    // acquisition or mutation can interleave with the checks and durable write.
+    return this.serial(key, async () => {
+      const { metadata } = await this.read(key);
+      if (this.state(key).status === "locked")
+        throw new CanvasError("LOCKED", "Canvas is already being edited");
+      if (metadata.revision !== expectedRevision)
+        throw new CanvasError(
+          "CONFLICT",
+          "Canvas has changed; read it again before deleting",
         );
-        throw error;
-      }
-      this.locks.delete(key);
-      this.scheduleExpiry();
-      this.changed(key);
-      await this.reviews.remove(actor.workspaceId, input.canvasId);
-      return { deleted: true };
+      return this.remove(key, workspaceId, canvasId);
     });
   }
 }

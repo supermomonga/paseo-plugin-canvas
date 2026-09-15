@@ -19,6 +19,7 @@ import {
   usePluginTheme,
 } from "paseo-plugin-helper/client";
 import {
+  editorLabel,
   getCanvas,
   listCanvases,
   type Canvas,
@@ -26,6 +27,7 @@ import {
 } from "../shared/contracts";
 import { useCanvasUpdates } from "./updates";
 import { createCanvasSelection, type CanvasSelection } from "./selection";
+import { useCanvasEditor, CanvasEditForm, EditConfirmation } from "./editor";
 import { ReviewDocument } from "./review";
 import { HEADER_HEIGHT, ToolbarButton, titleText, metaText } from "./controls";
 
@@ -42,7 +44,7 @@ const detailMinWidth = 400;
 
 function lockLabel(state: EditState) {
   return state.status === "locked"
-    ? `Being edited by ${state.lock.ownerAgentTitle ?? state.lock.ownerAgentId}`
+    ? `Being edited by ${editorLabel(state.lock.owner, state.lock.ownerTitle)}`
     : "Unlocked";
 }
 
@@ -91,6 +93,7 @@ function WorkspaceCanvas({
   selection: CanvasSelection;
 }) {
   const colors = theme.colors;
+  const { editor, state: edit } = useCanvasEditor(workspaceId, selection);
   const updateError = useCanvasUpdates(workspaceId);
   const selected = useSyncExternalStore(
     (listener) => selection.subscribe(workspaceId, listener),
@@ -108,8 +111,8 @@ function WorkspaceCanvas({
     selected !== null &&
     !!list.data &&
     !list.data.items.some((item) => item.canvasId === selected);
-  const showList = singlePane ? selected === null : listOpen;
-  const showDetail = !singlePane || selected !== null;
+  const showList = singlePane ? selected === null && !edit.draft : listOpen;
+  const showDetail = !!edit.draft || !singlePane || selected !== null;
   const navigation = singlePane ? (
     <ToolbarButton
       icon="ArrowLeft"
@@ -134,6 +137,15 @@ function WorkspaceCanvas({
   const navigationSide = singlePane ? "left" : listSide;
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
+      {edit.error && (
+        <Text
+          accessibilityRole="alert"
+          style={{ ...metaText, color: colors.statusDanger, padding: 12 }}
+        >
+          {edit.error}
+        </Text>
+      )}
+      <EditConfirmation editor={editor} state={edit} theme={theme} />
       {updateError && (
         <Text
           accessibilityRole="alert"
@@ -194,6 +206,12 @@ function WorkspaceCanvas({
                   </Text>
                 </View>
               </View>
+              <ToolbarButton
+                icon="Plus"
+                label="New canvas"
+                disabled={edit.busy}
+                onPress={() => editor.newCanvas()}
+              />
               {!singlePane && (
                 <ToolbarButton
                   icon={listSide === "left" ? "PanelRight" : "PanelLeft"}
@@ -223,7 +241,7 @@ function WorkspaceCanvas({
                 <EmptyState
                   icon={null}
                   title="No canvases yet"
-                  description="Ask an agent to create a canvas"
+                  description="Create a canvas or ask an agent to create one"
                   style={{ flex: 1, padding: 16 }}
                 />
               )}
@@ -242,12 +260,22 @@ function WorkspaceCanvas({
         )}
         {showDetail && (
           <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-            {canvasId ? (
+            {edit.draft ? (
+              <CanvasEditForm
+                editor={editor}
+                state={edit}
+                theme={theme}
+                workspaceId={workspaceId}
+              />
+            ) : canvasId ? (
               <CanvasDetail
                 key={canvasId}
                 workspaceId={workspaceId}
                 canvasId={canvasId}
                 missing={selectionMissing}
+                busy={edit.busy}
+                onEdit={() => void editor.begin(canvasId)}
+                onDelete={(canvas) => editor.requestDelete(canvas)}
                 theme={theme}
                 platform={layout.platform}
                 navigation={navigation}
@@ -357,6 +385,9 @@ function CanvasDetail({
   platform,
   navigation,
   navigationSide,
+  onEdit,
+  onDelete,
+  busy,
 }: {
   workspaceId: string;
   canvasId: string;
@@ -365,6 +396,9 @@ function CanvasDetail({
   platform: PluginWorkspacePanelProps["layout"]["platform"];
   navigation: ReactNode;
   navigationSide: "left" | "right";
+  onEdit: () => void;
+  onDelete: (canvas: Canvas) => void;
+  busy: boolean;
 }) {
   const colors = theme.colors;
   const toast = useToast();
@@ -437,8 +471,10 @@ function CanvasDetail({
                       color: colors.foregroundMuted,
                     }}
                   >
-                    {canvas.editState.lock.ownerAgentTitle ??
-                      canvas.editState.lock.ownerAgentId}
+                    {editorLabel(
+                      canvas.editState.lock.owner,
+                      canvas.editState.lock.ownerTitle,
+                    )}
                   </Text>
                 )}
               </>
@@ -456,6 +492,7 @@ function CanvasDetail({
       <View
         style={{
           minHeight: HEADER_HEIGHT,
+          flexWrap: "wrap",
           paddingHorizontal: 16,
           paddingVertical: 10,
           flexDirection: "row",
@@ -479,6 +516,18 @@ function CanvasDetail({
                 style={{ borderRadius: 6 }}
               />
             </View>
+            <ToolbarButton
+              icon="Pencil"
+              label="Edit"
+              disabled={busy || canvas.editState.status === "locked"}
+              onPress={onEdit}
+            />
+            <ToolbarButton
+              icon="Trash2"
+              label="Delete"
+              disabled={busy || canvas.editState.status === "locked"}
+              onPress={() => onDelete(canvas)}
+            />
             <ToolbarButton
               icon="Copy"
               label="Copy"
@@ -550,12 +599,12 @@ function CanvasDetails({
     ["Title", canvas.title],
     ["Canvas ID", canvas.canvasId],
     ["Revision", canvas.revision],
+    ["Last saved by", editorLabel(canvas.updatedBy)],
   ];
   if (canvas.editState.status === "locked") {
     const lock = canvas.editState.lock;
     fields.push(
-      ["Editing agent", lock.ownerAgentTitle ?? lock.ownerAgentId],
-      ["Agent ID", lock.ownerAgentId],
+      ["Editor", editorLabel(lock.owner, lock.ownerTitle)],
       ["Lock acquired", lock.acquiredAt],
       ["Last renewed", lock.renewedAt],
       ["Expires", lock.expiresAt],

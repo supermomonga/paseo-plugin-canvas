@@ -29,6 +29,8 @@ import {
   retryDispatch,
 } from "./server/review-dispatch";
 
+import { registerUserEditing } from "./server/user-editing";
+
 const REGISTRATION_ENV = "PASEO_CANVAS_REGISTRATION";
 export default function contribute(server: PluginServerContext) {
   const logger = createPluginLogger("paseo-canvas", { version: "0.1.0" });
@@ -61,6 +63,7 @@ export default function contribute(server: PluginServerContext) {
   void ready.catch(() =>
     logger.error("Canvas initialization failed; operations are unavailable"),
   );
+  registerUserEditing(server, async () => (await ready).store);
   server.handle(listCanvases, async ({ workspaceId }) =>
     (await ready).store.list(workspaceId),
   );

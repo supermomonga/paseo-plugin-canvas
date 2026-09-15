@@ -2,6 +2,10 @@
 // receives the actual Paseo icons, adaptive modal and toast implementations.
 import React, { useEffect, useState } from "react";
 import {
+  Save,
+  Plus,
+  Undo2,
+  LockKeyhole,
   MessageSquare,
   MessageSquarePlus,
   Check,
@@ -60,6 +64,10 @@ import type {
 import type { PluginIconProps } from "@getpaseo/plugin/client";
 export { ScrollView, TextInput } from "react-native";
 const icons = {
+  Save,
+  Plus,
+  Undo2,
+  LockKeyhole,
   MessageSquare,
   MessageSquarePlus,
   Check,

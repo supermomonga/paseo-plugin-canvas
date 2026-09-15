@@ -118,7 +118,7 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
   const lease = await call(a.client, "lock.acquire", { canvasId });
   expect(
     (await call(b.client, "canvas.get", { canvasId })).data.canvas.editState
-      .lock.ownerAgentId,
+      .lock.owner.agentId,
   ).toBe("agent-a");
   expect((await call(b.client, "lock.acquire", { canvasId })).data.code).toBe(
     "LOCKED",

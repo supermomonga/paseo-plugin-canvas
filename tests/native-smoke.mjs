@@ -1,6 +1,5 @@
 import { mkdtemp, cp, mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
-import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { compilePlugin } from "../node_modules/@getpaseo/server/dist/server/server/plugins/compiler.js";
 
@@ -13,18 +12,27 @@ if (version.status !== 0 || !version.stdout.includes("for RN 0.81.5"))
   throw new Error("Use the Hermes executable distributed with React Native 0.81.5");
 
 const root = process.cwd();
-const dir = await mkdtemp(path.join(tmpdir(), "canvas-native-"));
+await mkdir(path.join(root, ".test-output"), { recursive: true });
+const dir = await mkdtemp(path.join(root, ".test-output/canvas-native-"));
 try {
   const production = await compilePlugin({ client: path.join(root, "index.client.tsx"), server: null });
   // Exercise shared code through the SAME released compiler and eval boundary.
   await mkdir(path.join(dir, "client"));
   await cp(path.join(root, "client/selection.ts"), path.join(dir, "client/selection.ts"));
-  await cp(path.join(root, "shared/mermaid"), path.join(dir, "shared/mermaid"), { recursive: true });
+  await cp(path.join(root, "client/editing-state.ts"), path.join(dir, "client/editing-state.ts"));
+  await cp(path.join(root, "shared"), path.join(dir, "shared"), { recursive: true });
   await writeFile(path.join(dir, "index.client.ts"), `
 import { createCanvasSelection } from "./client/selection";
+import { createCanvasEditor } from "./client/editing-state";
 import { diagramModel, isMermaidDiagnosticError } from "./shared/mermaid/model";
 function assert(ok, message) { if (!ok) throw new Error(message); }
 export default function () {
+  const editor = createCanvasEditor("workspace", {});
+  editor.newCanvas(); editor.change({title:"Title",content:"Draft"});
+  assert(editor.getSnapshot().draft.content === "Draft", "user draft");
+  editor.navigate(function(){throw new Error("Unconfirmed navigation");});
+  assert(editor.getSnapshot().confirmation === "discard", "discard confirmation");
+  editor.dismissConfirmation(); editor.dispose();
   const selection = createCanvasSelection();
   let calls = 0;
   const stop = selection.subscribe("workspace", () => calls++);
@@ -91,7 +99,7 @@ cleanup();
 assert(directoryUnsubscribed && headers.length===0,"native header cleanup");
 assert(panels.length===0 && renderers.length===0 && commands.length===0,"plugin cleanup");
 (0,eval)(${JSON.stringify(probe.clientBundle)})(require).default()();
-print("Hermes native smoke passed: startup, header navigation, selection, Mermaid layouts and diagnostics, cleanup");
+print("Hermes native smoke passed: startup, header navigation, selection, user drafts and discard confirmation, Mermaid layouts and diagnostics, cleanup");
 }).catch(function(error){print(error.stack);});
 `;
   const script = path.join(dir, "smoke.js");

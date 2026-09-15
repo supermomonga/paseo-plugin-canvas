@@ -9,12 +9,27 @@ import { CanvasChanges } from "../../server/changes";
 import { GraphicsRenderer } from "../../server/graphics";
 import { workspaceImage } from "../../server/images";
 import { getFixtureQuery } from "./query";
+import { registerUserEditing } from "../../server/user-editing";
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+const userHandlers = new Map<string, (input: unknown) => Promise<unknown>>();
 const root = path.resolve(".test-output/visual");
 const graphics = new GraphicsRenderer();
 const changes = new CanvasChanges();
 const markdown = await readFile("tests/fixtures/gfm.md", "utf8");
 const store = await CanvasStore.open(
   await mkdtemp(path.join(tmpdir(), "canvas-review-ui-")),
+);
+registerUserEditing(
+  {
+    handle(contract, handler) {
+      userHandlers.set(contract.name, async (input) =>
+        contract.output.parse(
+          await handler(contract.input.parse(input), {} as never),
+        ),
+      );
+    },
+  } as Pick<PluginServerContext, "handle">,
+  async () => store,
 );
 const actor = {
   agentId: "fixture-agent",
@@ -36,7 +51,8 @@ const server = createServer(async (req, res) => {
       const input = JSON.parse(Buffer.concat(chunks).toString());
       const name = req.url.slice(5);
       let result;
-      if (name === "canvas.wait_for_change")
+      if (userHandlers.has(name)) result = await userHandlers.get(name)!(input);
+      else if (name === "canvas.wait_for_change")
         result = await store.waitForChange(input.workspaceId, input.cursor);
       else if (name === "canvas.render_graphic")
         result = await graphics.render(input);

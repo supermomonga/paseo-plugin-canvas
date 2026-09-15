@@ -5,22 +5,30 @@ import { z } from "zod";
 export const idSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
 export const titleSchema = z.string().trim().min(1).max(240);
 export const contentSchema = z.string().max(1_000_000);
+export const editorSchema = z.discriminatedUnion("role", [
+  z.object({ role: z.literal("user") }).strict(),
+  z.object({ role: z.literal("agent"), agentId: idSchema }).strict(),
+]);
+export type Editor = z.infer<typeof editorSchema>;
+export function editorLabel(editor: Editor, title?: string | null) {
+  return editor.role === "user" ? "User" : (title ?? editor.agentId);
+}
 export const metadataSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     workspaceId: idSchema,
     canvasId: idSchema,
     title: titleSchema,
     revision: z.number().int().positive().safe(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
-    updatedByAgentId: idSchema,
+    updatedBy: editorSchema,
   })
   .strict();
 export const publicLockSchema = z.object({
   id: z.string(),
-  ownerAgentId: idSchema,
-  ownerAgentTitle: z.string().nullable(),
+  owner: editorSchema,
+  ownerTitle: z.string().nullable(),
   acquiredAt: z.iso.datetime(),
   renewedAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
@@ -74,6 +82,17 @@ export type Actor = {
   title: string | null;
   sessionId: string;
 };
+export type UserActor = {
+  role: "user";
+  workspaceId: string;
+  sessionId: string;
+};
+export type EditActor = Actor | UserActor;
+export function actorEditor(actor: EditActor): Editor {
+  return "role" in actor
+    ? { role: "user" }
+    : { role: "agent", agentId: idSchema.parse(actor.agentId) };
+}
 export const editInputSchema = z
   .object({
     canvasId: idSchema,

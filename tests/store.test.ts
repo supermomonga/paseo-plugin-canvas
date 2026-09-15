@@ -169,14 +169,14 @@ test("refuses another owner of the same storage directory and allows reopen afte
 });
 test("format round-trips frontmatter-like content and rejects aliases/duplicate keys", () => {
   const metadata = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     workspaceId: a.workspaceId,
     canvasId: "canvas",
     title: 'Colon: " #',
     revision: 1,
     createdAt: "2026-09-11T09:00:00.000Z",
     updatedAt: "2026-09-11T09:00:00.000Z",
-    updatedByAgentId: a.agentId,
+    updatedBy: { role: "agent" as const, agentId: a.agentId },
   };
   const content = "---\nuser: frontmatter\n---\n\n# 保持\n";
   const encoded = encodeDocument(metadata, content);
@@ -186,7 +186,7 @@ test("format round-trips frontmatter-like content and rejects aliases/duplicate 
   });
   expect(() =>
     decodeDocument(
-      encoded.replace("schemaVersion: 1", "schemaVersion: 1\nschemaVersion: 1"),
+      encoded.replace("schemaVersion: 2", "schemaVersion: 2\nschemaVersion: 2"),
       a.workspaceId,
       "canvas",
     ),
