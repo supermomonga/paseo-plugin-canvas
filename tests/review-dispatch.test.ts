@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CanvasStore } from "../server/store";
@@ -59,18 +59,37 @@ const input = () => ({
 });
 function sdk() {
   const agent = {
+    id: actor.agentId,
     workspaceId: "workspace",
-    archivedAt: null,
+    archivedAt: null as string | null,
+    cwd: "/workspace",
+    title: "Agent A" as string | null,
+    provider: "codex",
+    model: "gpt-5.4" as string | null,
+    status: "idle",
     pendingPermissions: [] as unknown[],
     activeTurn: null as object | null,
-    refresh: vi.fn(async () => {}),
     send: vi.fn(async (_text: string, _options: object) => {}),
   };
+  const agents = [agent];
+  const list = vi.fn(async (_options: unknown) => ({
+    entries: agents.map((agent) => ({ agent: { ...agent }, project: null })),
+    pageInfo: { nextCursor: null as string | null },
+  }));
+  const ref = vi.fn(() => ({ send: agent.send }));
+  const snapshot = vi.fn(async (_options: unknown) => ({
+    entries: [{ provider: "codex", label: "Codex", models: [] }],
+  }));
   return {
     agent,
-    paseo: { agents: { ref: () => agent } } as unknown as Parameters<
-      typeof dispatchReview
-    >[2],
+    agents,
+    list,
+    ref,
+    snapshot,
+    paseo: {
+      agents: { list, ref },
+      providers: { snapshot },
+    } as unknown as Parameters<typeof dispatchReview>[2],
   };
 }
 test("only explicit send dispatches once, with a durable message ID and real prompt", async () => {
@@ -125,18 +144,14 @@ test("a lost send response is unknown and is only retried explicitly with the sa
   expect(agent.send.mock.calls[1][1]).toEqual({ messageId: first.id });
 });
 
-test("recipient labels use refreshed tab titles and provider/model display names, not cached bindings or agent IDs", async () => {
+test("recipient labels use listed tab titles and provider/model display names, not cached bindings or agent IDs", async () => {
   await sessions.title(actor.agentId, "Old cached name");
-  const current = {
+  const { agent, paseo, ref } = sdk();
+  Object.assign(agent, {
     cwd: "/workspace",
-    title: "古いタブ名",
+    title: "  Canvasレビューを改善する\n仕様を確認  ",
     provider: "custom-codex",
     model: "fast",
-  };
-  const { agent, paseo } = sdk();
-  Object.assign(agent, { current: () => current });
-  agent.refresh.mockImplementation(async () => {
-    current.title = "  Canvasレビューを改善する\n仕様を確認  ";
   });
   const snapshot = vi.fn(async () => ({
     entries: [
@@ -159,17 +174,17 @@ test("recipient labels use refreshed tab titles and provider/model display names
   ]);
   expect(snapshot).toHaveBeenCalledWith({ cwd: "/workspace" });
   expect(agent.send).not.toHaveBeenCalled();
+  expect(ref).not.toHaveBeenCalled();
 });
 
 test("unnamed sessions and unreported models have explicit labels without guessing the default model", async () => {
   const { agent, paseo } = sdk();
-  const current = {
+  Object.assign(agent, {
     cwd: "/workspace",
     title: null,
     provider: "claude",
     model: null,
-  };
-  Object.assign(agent, { current: () => current });
+  });
   Object.assign(paseo, {
     providers: {
       snapshot: vi.fn(async () => ({
@@ -193,20 +208,9 @@ test("unnamed sessions and unreported models have explicit labels without guessi
 test("recipient discovery shares a cwd catalog and preserves distinct send IDs", async () => {
   const token = sessions.register();
   await sessions.activate("agent-b", "workspace", token);
-  const { agent, paseo } = sdk();
-  const ref = vi.fn((id: string) => ({
-    ...agent,
-    current: () => ({
-      cwd: "/workspace",
-      title: id === "agent-a" ? "Plan" : "Implement",
-      provider: "codex",
-      model: "new-model",
-    }),
-  }));
-  const snapshot = vi.fn(async () => ({
-    entries: [{ provider: "codex", label: "Codex", models: [] }],
-  }));
-  Object.assign(paseo, { agents: { ref }, providers: { snapshot } });
+  const { agent, agents, paseo, snapshot } = sdk();
+  Object.assign(agent, { title: "Plan", model: "new-model" });
+  agents.push({ ...agent, id: "agent-b", title: "Implement" });
   expect(await recipients(sessions, paseo, "workspace")).toEqual([
     {
       id: "agent-a",
@@ -223,4 +227,191 @@ test("recipient discovery shares a cwd catalog and preserves distinct send IDs",
   ]);
   expect(snapshot).toHaveBeenCalledOnce();
   expect(await recipients(sessions, paseo, "other-workspace")).toEqual([]);
+});
+
+test("orphaned registrations survive reload without hiding existing, resumable recipients", async () => {
+  for (const id of ["failed-creation", "deleted-agent"])
+    await sessions.activate(id, "workspace", sessions.register());
+  const saved = await readFile(path.join(root, "mcp.json"), "utf8");
+  await sessions.close();
+  sessions = await Sessions.open(store);
+  const { agent, paseo, ref } = sdk();
+  agent.status = "closed";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    expect(
+      (await recipients(sessions, paseo, "workspace")).map((r) => r.id),
+    ).toEqual([actor.agentId]);
+  }
+  expect(ref).not.toHaveBeenCalled();
+  expect(
+    (await dispatchReview(store.reviews, sessions, paseo, input())).attempts[0]
+      .status,
+  ).toBe("accepted");
+  expect(agent.send).toHaveBeenCalledOnce();
+  expect(await readFile(path.join(root, "mcp.json"), "utf8")).toBe(saved);
+});
+
+test("recipient discovery reads every page and retains a candidate after 200 other agents", async () => {
+  const { agent, paseo, list } = sdk();
+  list.mockResolvedValueOnce({
+    entries: Array.from({ length: 200 }, (_, i) => ({
+      agent: { ...agent, id: `other-${i}` },
+      project: null,
+    })),
+    pageInfo: { nextCursor: "next-page" },
+  });
+  expect(
+    (await recipients(sessions, paseo, "workspace")).map((r) => r.id),
+  ).toEqual([actor.agentId]);
+  expect(list.mock.calls.map(([options]) => options)).toEqual([
+    {
+      filter: { includeArchived: false },
+      sort: [{ key: "created_at", direction: "asc" }],
+      page: { limit: 200 },
+    },
+    {
+      filter: { includeArchived: false },
+      sort: [{ key: "created_at", direction: "asc" }],
+      page: { limit: 200, cursor: "next-page" },
+    },
+  ]);
+});
+
+test("only matching workspace, unarchived agents with active registrations are eligible", async () => {
+  const { agent, agents, paseo } = sdk();
+  for (const id of ["other-workspace", "archived", "revoked"]) {
+    await sessions.activate(id, "workspace", sessions.register());
+    agents.push({ ...agent, id });
+  }
+  agents[1].workspaceId = "other-workspace";
+  agents[2].archivedAt = new Date().toISOString();
+  await sessions.revoke("revoked");
+  agents.push({ ...agent, id: "unregistered" });
+  expect(
+    (await recipients(sessions, paseo, "workspace")).map((r) => r.id),
+  ).toEqual([actor.agentId]);
+});
+
+test("a registration revoked during listing cannot become a recipient", async () => {
+  const { paseo, list, agent } = sdk();
+  list.mockImplementationOnce(async () => {
+    await sessions.revoke(actor.agentId);
+    return {
+      entries: [{ agent, project: null }],
+      pageInfo: { nextCursor: null },
+    };
+  });
+  expect(await recipients(sessions, paseo, "workspace")).toEqual([]);
+});
+
+test.each(["first page", "later page", "provider catalog"])(
+  "%s failures reject discovery without altering registrations or returning partial results",
+  async (failure) => {
+    const { paseo, list, snapshot, agent } = sdk();
+    const saved = await readFile(path.join(root, "mcp.json"), "utf8");
+    const error = new Error("Unavailable");
+    if (failure === "provider catalog") snapshot.mockRejectedValueOnce(error);
+    else {
+      if (failure === "later page")
+        list.mockResolvedValueOnce({
+          entries: [{ agent, project: null }],
+          pageInfo: { nextCursor: "next-page" },
+        });
+      list.mockRejectedValueOnce(error);
+    }
+    await expect(recipients(sessions, paseo, "workspace")).rejects.toBe(error);
+    expect(await readFile(path.join(root, "mcp.json"), "utf8")).toBe(saved);
+    expect(agent.send).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["deleted", "archived", "moved", "revoked"])(
+  "a recipient %s after selection is rejected before recording or sending",
+  async (change) => {
+    const { agent, agents, paseo } = sdk();
+    expect(await recipients(sessions, paseo, "workspace")).toHaveLength(1);
+    if (change === "deleted") agents.length = 0;
+    if (change === "archived") agent.archivedAt = new Date().toISOString();
+    if (change === "moved") agent.workspaceId = "other-workspace";
+    if (change === "revoked") await sessions.revoke(actor.agentId);
+    await expect(
+      dispatchReview(store.reviews, sessions, paseo, input()),
+    ).rejects.toMatchObject({ code: "RECIPIENT_UNAVAILABLE" });
+    expect(
+      (await store.reviews.get("workspace", canvasId)).state.deliveries,
+    ).toEqual({});
+    expect(agent.send).not.toHaveBeenCalled();
+  },
+);
+
+test("the second preflight catches disappearance after recording and marks the attempt failed", async () => {
+  const { paseo, list, agent } = sdk();
+  list.mockResolvedValueOnce({
+    entries: [{ agent, project: null }],
+    pageInfo: { nextCursor: null },
+  });
+  list.mockResolvedValue({ entries: [], pageInfo: { nextCursor: null } });
+  const delivery = await dispatchReview(
+    store.reviews,
+    sessions,
+    paseo,
+    input(),
+  );
+  expect(delivery.attempts[0]).toMatchObject({
+    status: "failed",
+    error: expect.stringContaining("no longer available"),
+  });
+  expect(agent.send).not.toHaveBeenCalled();
+});
+
+test("manual retry checks the current directory before creating another attempt", async () => {
+  const { paseo, agent, agents } = sdk();
+  agent.send.mockRejectedValueOnce(new Error("Connection lost"));
+  const delivery = await dispatchReview(
+    store.reviews,
+    sessions,
+    paseo,
+    input(),
+  );
+  agents.length = 0;
+  await expect(
+    retryDispatch(store.reviews, sessions, paseo, {
+      workspaceId: "workspace",
+      canvasId,
+      requestId: delivery.id,
+      allowInterrupt: false,
+    }),
+  ).rejects.toMatchObject({ code: "RECIPIENT_UNAVAILABLE" });
+  expect(
+    (await store.reviews.delivery("workspace", canvasId, delivery.id)).attempts,
+  ).toHaveLength(1);
+  expect(agent.send).toHaveBeenCalledOnce();
+});
+
+test("listing failures prevent initial dispatch and keep recorded attempts failed before SDK send", async () => {
+  const { paseo, agent, list } = sdk();
+  const error = new Error("Directory offline");
+  list.mockRejectedValueOnce(error);
+  await expect(
+    dispatchReview(store.reviews, sessions, paseo, input()),
+  ).rejects.toBe(error);
+  expect(
+    (await store.reviews.get("workspace", canvasId)).state.deliveries,
+  ).toEqual({});
+  list.mockResolvedValueOnce({
+    entries: [{ agent, project: null }],
+    pageInfo: { nextCursor: null },
+  });
+  list.mockRejectedValueOnce(error);
+  const delivery = await dispatchReview(
+    store.reviews,
+    sessions,
+    paseo,
+    input(),
+  );
+  expect(delivery.attempts[0]).toMatchObject({
+    status: "failed",
+    error: "Directory offline",
+  });
+  expect(agent.send).not.toHaveBeenCalled();
 });

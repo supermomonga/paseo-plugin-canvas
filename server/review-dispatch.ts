@@ -1,10 +1,36 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput } from "@getpaseo/plugin";
+import type { PaseoAgent } from "@getpaseo/client";
 import { sendReview, retryReview, type ReviewDelivery } from "../shared/review";
 import type { Sessions } from "./sessions";
 import type { ReviewStore } from "./reviews";
 import { CanvasError } from "./errors";
 type Paseo = PluginHandlerContext["paseo"];
+async function availableAgents(
+  sessions: Sessions,
+  paseo: Paseo,
+  workspaceId: string,
+) {
+  const agents = new Map<string, PaseoAgent>();
+  let cursor: string | null = null;
+  do {
+    const page = await paseo.agents.list({
+      filter: { includeArchived: false },
+      sort: [{ key: "created_at", direction: "asc" }],
+      page: { limit: 200, ...(cursor ? { cursor } : {}) },
+    });
+    for (const { agent } of page.entries) {
+      if (agent.workspaceId === workspaceId && !agent.archivedAt)
+        agents.set(agent.id, agent);
+    }
+    cursor = page.pageInfo.nextCursor;
+  } while (cursor);
+
+  // Bindings authorize MCP access; they do not establish that an agent exists.
+  // Check them after listing, including any revocations received while awaiting it.
+  const registered = new Set(sessions.eligible(workspaceId).map((s) => s.id));
+  return [...agents.values()].filter((agent) => registered.has(agent.id));
+}
 async function target(
   sessions: Sessions,
   paseo: Paseo,
@@ -12,17 +38,13 @@ async function target(
   id: string,
   allowInterrupt: boolean,
 ) {
-  if (!sessions.eligible(workspaceId).some((s) => s.id === id))
+  const agent = (await availableAgents(sessions, paseo, workspaceId)).find(
+    (agent) => agent.id === id,
+  );
+  if (!agent)
     throw new CanvasError(
       "RECIPIENT_UNAVAILABLE",
-      "This session does not have active Canvas MCP access",
-    );
-  const agent = paseo.agents.ref(id);
-  await agent.refresh();
-  if (agent.workspaceId !== workspaceId || agent.archivedAt)
-    throw new CanvasError(
-      "RECIPIENT_UNAVAILABLE",
-      "Session is no longer available in this workspace",
+      "Session is no longer available in this workspace with active Canvas MCP access",
     );
   if (agent.pendingPermissions?.length)
     throw new CanvasError(
@@ -34,29 +56,20 @@ async function target(
       "INTERRUPT_CONFIRMATION",
       "This session is running. Sending may interrupt its current work",
     );
-  return agent;
+  return paseo.agents.ref(agent);
 }
 export async function recipients(
   sessions: Sessions,
   paseo: Paseo,
   workspaceId: string,
 ) {
-  const candidates = sessions.eligible(workspaceId);
+  const candidates = await availableAgents(sessions, paseo, workspaceId);
   const output = [];
   const catalogs = new Map<
     string,
     Awaited<ReturnType<Paseo["providers"]["snapshot"]>>
   >();
-  for (const candidate of candidates) {
-    const agent = paseo.agents.ref(candidate.id);
-    await agent.refresh();
-    if (agent.workspaceId !== workspaceId || agent.archivedAt) continue;
-    const current = agent.current();
-    if (!current)
-      throw new CanvasError(
-        "RECIPIENT_UNAVAILABLE",
-        "Unable to load session details",
-      );
+  for (const current of candidates) {
     // The tab title lives in the current Paseo snapshot. The MCP binding may
     // predate its first prompt or a rename, so it is not a display-name source.
     let catalog = catalogs.get(current.cwd);
@@ -79,10 +92,10 @@ export async function recipients(
     const providerName = provider?.label ?? current.provider;
     const modelName = model?.label ?? current.model ?? "Model not reported";
     output.push({
-      id: candidate.id,
+      id: current.id,
       title: `${title} · ${providerName} / ${modelName}`,
-      running: !!agent.activeTurn,
-      blocked: !!agent.pendingPermissions?.length,
+      running: !!current.activeTurn,
+      blocked: !!current.pendingPermissions?.length,
     });
   }
   return output;
