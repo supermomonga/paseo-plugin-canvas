@@ -488,6 +488,24 @@ test("tables use measured content widths, preserve column alignment, and scroll 
   await act(async () => view.unmount());
 });
 
+test("action controls are uniform sm buttons with the view toggle right-aligned", async () => {
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(panel(false));
+  });
+  const labels = ["Edit", "Delete", "Copy content"];
+  for (const label of labels)
+    expect(button(view, label).props.size).toBe("sm");
+  const tabs = view.root.findByType(Tabs);
+  expect(tabs.parent!.props.style.marginLeft).toBe("auto");
+  const row = tabs.parent!.parent!;
+  const buttons = row
+    .findAllByType(Button)
+    .map((item) => item.props.accessibilityLabel ?? item.props.label);
+  expect(buttons).toEqual(["Edit", "Delete", "Copy content"]);
+  await act(async () => view.unmount());
+});
+
 test("copy success and failure use the host toast instead of inserting content into the panel", async () => {
   let view!: ReactTestRenderer;
   await act(async () => {

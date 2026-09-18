@@ -504,18 +504,6 @@ function CanvasDetail({
       >
         {canvas ? (
           <>
-            <View style={{ flex: 1, maxWidth: 260, minWidth: 0 }}>
-              <Tabs
-                tabs={[
-                  { id: "preview", label: "Preview", icon: "Eye" },
-                  { id: "source", label: "Code", icon: "Code" },
-                ]}
-                activeTab={mode}
-                onTabChange={(id) => setMode(id as "preview" | "source")}
-                mode="fit"
-                style={{ borderRadius: 6 }}
-              />
-            </View>
             <ToolbarButton
               icon="Pencil"
               label="Edit"
@@ -531,7 +519,6 @@ function CanvasDetail({
             <ToolbarButton
               icon="Copy"
               label="Copy"
-              size="md"
               accessibilityLabel="Copy content"
               onPress={async () => {
                 try {
@@ -542,6 +529,25 @@ function CanvasDetail({
                 }
               }}
             />
+            <View
+              style={{
+                marginLeft: "auto",
+                width: 260,
+                maxWidth: "100%",
+                minWidth: 0,
+              }}
+            >
+              <Tabs
+                tabs={[
+                  { id: "preview", label: "Preview", icon: "Eye" },
+                  { id: "source", label: "Code", icon: "Code" },
+                ]}
+                activeTab={mode}
+                onTabChange={(id) => setMode(id as "preview" | "source")}
+                mode="fit"
+                style={{ borderRadius: 6 }}
+              />
+            </View>
           </>
         ) : null}
       </View>
