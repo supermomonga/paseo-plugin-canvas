@@ -6,6 +6,14 @@ Keep plans, notes, and review discussions in one place. Ask an agent to write a 
 
 [Get started](#get-started) · [Usage](#usage) · [Supported content](#supported-content) · [Troubleshooting](#troubleshooting)
 
+![1](images/1.png)
+
+
+|Create a Canvas|Comment|Send to Agent|Agent gives feedback|
+|---|---|---|---|
+| ![1](images/1.png) | ![2](images/2.png) | ![3](images/3.png) | ![4](images/4.png) |
+
+
 ## What you can do
 
 - **Share documents across sessions.** Keep multiple canvases in a workspace, with changes appearing automatically.
