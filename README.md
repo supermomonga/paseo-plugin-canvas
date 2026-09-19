@@ -24,17 +24,19 @@ Keep plans, notes, and review discussions in one place. Ask an agent to write a 
 
 ### Install
 
-In Paseo, open **Settings → Plugins** on the target host and turn on **Enable plugins** if needed. Paste this repository URL into **Plugin source**, then select **Install plugin**:
+In Paseo, open **Settings → Plugins** on the target host and turn on **Enable plugins** if needed. On Paseo 0.9.0-beta.1 or later, paste this source into **Plugin source**, then select **Install plugin**:
 
 ```text
-https://github.com/supermomonga/paseo-plugin-canvas
+github:supermomonga/paseo-plugin-canvas
 ```
 
 Alternatively, install from a terminal on the daemon host:
 
 ```sh
-paseo plugin add supermomonga/paseo-plugin-canvas
+paseo plugin install github:supermomonga/paseo-plugin-canvas
 ```
+
+On Paseo 0.8.0, use `https://github.com/supermomonga/paseo-plugin-canvas` instead of the `github:` source in either method.
 
 Paseo installs dependencies and prepares the rendering assets automatically. Confirm that `paseo-canvas` is running in **Settings → Plugins**. See the [Paseo plugin guide](https://paseo.sh/docs/plugins) for installation details.
 
