@@ -1,0 +1,88 @@
+name: Version Bump
+
+# Bumps the plugin version in a release pull request. Merging it makes the
+# Release workflow tag the version and publish it to npm (ADR 14).
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: "Explicit version (overrides release_type if set, e.g. 1.2.3)"
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump version and open a release PR
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      # npm version keeps package-lock.json in step with package.json.
+      - name: Bump version
+        id: bump-version
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then
+            if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::version must be MAJOR.MINOR.PATCH, got '$VERSION'"
+              exit 1
+            fi
+            npm version "$VERSION" --no-git-tag-version --ignore-scripts
+          else
+            npm version "$RELEASE_TYPE" --no-git-tag-version --ignore-scripts
+          fi
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          base: main
+          branch: release/v${{ steps.bump-version.outputs.version }}
+          add-paths: |
+            package.json
+            package-lock.json
+          commit-message: "chore: release paseo-canvas ${{ steps.bump-version.outputs.version }}"
+          title: "Release v${{ steps.bump-version.outputs.version }}"
+          body: |
+            Bumps `paseo-canvas` to **${{ steps.bump-version.outputs.version }}**.
+
+            Merging this pull request makes the Release workflow tag `v${{ steps.bump-version.outputs.version }}`, publish the package to npm and create a GitHub release. Confirm that CI passes before merging.
+
+            This pull request was created by the Version Bump workflow.
+
+      # Pull requests opened with GITHUB_TOKEN do not trigger CI by themselves.
+      - name: Run CI on the release PR
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BRANCH: ${{ steps.cpr.outputs.pull-request-branch }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$PR_BRANCH"

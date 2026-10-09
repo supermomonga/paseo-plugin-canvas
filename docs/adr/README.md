@@ -11,3 +11,4 @@
 * [11. Place review discussions inside the document and separate the management overview](0011-place-review-discussions-inside-the-document-and-separate-the-management-overview.md)
 * [12. Share review selection and agent dispatch across document and overview](0012-share-review-selection-and-agent-dispatch-across-document-and-overview.md)
 * [13. Allow user canvas editing with shared leases and explicit save completion](0013-allow-user-canvas-editing-with-shared-leases-and-explicit-save-completion.md)
+* [14. Distribute the plugin on npm and publish merged version bumps with trusted publishing](0014-distribute-the-plugin-on-npm-and-publish-merged-version-bumps-with-trusted-publishing.md)

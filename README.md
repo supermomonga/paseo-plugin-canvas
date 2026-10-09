@@ -35,18 +35,18 @@ Keep plans, notes, and review discussions in one place. Ask an agent to write a 
 In Paseo, open **Settings → Plugins** on the target host and turn on **Enable plugins** if needed. On Paseo 0.9.0-beta.1 or later, paste this source into **Plugin source**, then select **Install plugin**:
 
 ```text
-github:supermomonga/paseo-plugin-canvas
+npm:paseo-canvas
 ```
 
 Alternatively, install from a terminal on the daemon host:
 
 ```sh
-paseo plugin install github:supermomonga/paseo-plugin-canvas
+paseo plugin install npm:paseo-canvas
 ```
 
-On Paseo 0.8.0, use `https://github.com/supermomonga/paseo-plugin-canvas` instead of the `github:` source in either method.
+This installs the latest release of the [npm package](https://www.npmjs.com/package/paseo-canvas). To follow the `main` branch instead, use the `github:supermomonga/paseo-plugin-canvas` source. Paseo 0.8.0 cannot install npm packages; use `https://github.com/supermomonga/paseo-plugin-canvas` in either method.
 
-Paseo installs dependencies and prepares the rendering assets automatically. Confirm that `paseo-canvas` is running in **Settings → Plugins**. See the [Paseo plugin guide](https://paseo.sh/docs/plugins) for installation details.
+Paseo installs dependencies automatically. Git installations also build the rendering assets on the host. Confirm that `paseo-canvas` is running in **Settings → Plugins**. See the [Paseo plugin guide](https://paseo.sh/docs/plugins) for installation details.
 
 > [!IMPORTANT]
 > Create a **new agent after installing or enabling the plugin** to give it Canvas access. Existing agents and imported sessions do not receive Canvas tools automatically. Agents created with Canvas enabled retain their access when resumed.
@@ -57,11 +57,13 @@ Open a workspace, then choose **Open Canvas** from the Command Center (**⌘K** 
 
 ### Update
 
-For the Git installation above, run this on the daemon host:
+Run this on the daemon host:
 
 ```sh
 paseo plugin update paseo-canvas
 ```
+
+npm installations update to the latest release. Git installations update to the latest `main`.
 
 > [!WARNING]
 > Upgrading from the earlier version 1 storage format requires manual conversion of canvas metadata. Back up Canvas storage before upgrading; there is no automatic migration. Old version 1 review comments are unsupported and are replaced when a new comment is saved.
