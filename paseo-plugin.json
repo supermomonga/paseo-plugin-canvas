@@ -4,7 +4,7 @@
     "paseo": ">=0.8.0"
   },
   "build": [
-    ["npm", "ci"],
+    ["npm", "ci", "--include=dev"],
     ["npm", "run", "setup"]
   ]
 }

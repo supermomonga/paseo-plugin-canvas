@@ -8,6 +8,8 @@ links:
   kind: relatesto
 - target: 8
   kind: RelatesTo
+- target: 14
+  kind: amendedby
 ---
 
 # Render diagrams and mathematics without Chromium or WebView

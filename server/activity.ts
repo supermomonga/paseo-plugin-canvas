@@ -10,10 +10,6 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import type {
-  PaseoAgentTimelineHandle,
-  PaseoAgentTimelineRefetchOptions,
-} from "@getpaseo/client";
 import { canvasActivitySchema, type CanvasActivity } from "../shared/activity";
 import { idSchema } from "../shared/contracts";
 import { CanvasChanges } from "./changes";
@@ -24,6 +20,13 @@ const entrySchema = z.object({
   activity: canvasActivitySchema,
 });
 type Entry = z.infer<typeof entrySchema>;
+// Derived from the host SDK: npm installations omit @getpaseo/client (ADR 14).
+type PaseoAgentTimelineHandle = ReturnType<
+  PluginHandlerContext["paseo"]["agents"]["ref"]
+>["timeline"];
+type PaseoAgentTimelineRefetchOptions = NonNullable<
+  Parameters<PaseoAgentTimelineHandle["refetch"]>[0]
+>;
 
 async function alreadyAppended(timeline: PaseoAgentTimelineHandle, id: string) {
   let cursor: PaseoAgentTimelineRefetchOptions["cursor"];

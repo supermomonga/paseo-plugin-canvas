@@ -1,11 +1,14 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput } from "@getpaseo/plugin";
-import type { PaseoAgent } from "@getpaseo/client";
 import { sendReview, retryReview, type ReviewDelivery } from "../shared/review";
 import type { Sessions } from "./sessions";
 import type { ReviewStore } from "./reviews";
 import { CanvasError } from "./errors";
 type Paseo = PluginHandlerContext["paseo"];
+// Derived from the host SDK: npm installations omit @getpaseo/client (ADR 14).
+type PaseoAgent = Awaited<
+  ReturnType<Paseo["agents"]["list"]>
+>["entries"][number]["agent"];
 async function availableAgents(
   sessions: Sessions,
   paseo: Paseo,

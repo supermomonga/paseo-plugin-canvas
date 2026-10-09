@@ -18,6 +18,7 @@
     "client/**/*.tsx",
     "server/**/*.ts",
     "shared/**/*.ts",
+    "renderer/**/*.ts",
     "tests/**/*.ts",
     "tests/**/*.tsx"
   ]
