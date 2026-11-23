@@ -1,20 +1,24 @@
 import {
+  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { Pressable, Text, View } from "react-native";
+import { z } from "zod";
 import {
   Icon,
   Modal,
   ScrollView,
   copyText,
   useToast,
-} from "@getpaseo/plugin/client/react-native";
+} from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
   useSettings,
+  useTabState,
+  type PluginTab,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
 import {
@@ -27,19 +31,27 @@ import {
   usePluginTheme,
 } from "paseo-plugin-helper/client";
 import {
-  editorLabel,
   getCanvas,
+  idSchema,
   listCanvases,
   type Canvas,
   type EditState,
+  type Editor,
 } from "../shared/contracts";
 import { useCanvasUpdates } from "./updates";
 import { createCanvasSelection, type CanvasSelection } from "./selection";
 import { useCanvasEditor, CanvasEditForm, EditConfirmation } from "./editor";
+import { draftChanged } from "./editing-state";
 import { ReviewDocument } from "./review";
 import { HEADER_HEIGHT, ToolbarButton, titleText, metaText } from "./controls";
 import { createLinkOpener, LinkOpenerProvider } from "./links";
-import { canvasSettings, defaultCanvasSettings } from "../shared/settings";
+import {
+  canvasDeviceSettings,
+  defaultCanvasDeviceSettings,
+} from "../shared/settings";
+import { useText } from "./i18n";
+
+type Translate = ReturnType<typeof useText>["t"];
 
 // Paseo docs/design.md and styles/theme.ts: use the public theme colors and the
 // authored interface scale. The SDK does not expose live typography/spacing tokens.
@@ -52,25 +64,61 @@ const labelStyle = {
 const sidebarWidth = 320;
 const detailMinWidth = 400;
 
-function lockLabel(state: EditState) {
-  return state.status === "locked"
-    ? `Being edited by ${editorLabel(state.lock.owner, state.lock.ownerTitle)}`
-    : "Unlocked";
+/** Who holds or last held a canvas, in the reader's language. */
+export function editorName(
+  t: Translate,
+  editor: Editor,
+  title?: string | null,
+) {
+  return editor.role === "user" ? t("panel.user") : (title ?? editor.agentId);
 }
 
-export function CanvasPanel(
-  props: PluginWorkspacePanelProps & {
-    selection?: CanvasSelection;
-    /** Opens the canvas in the full-page screen; omitted inside that screen. */
-    onOpenScreen?: (canvasId: string) => void;
-  },
-) {
+function lockLabel(t: Translate, state: EditState) {
+  return state.status === "locked"
+    ? t("panel.beingEdited", {
+        name: editorName(t, state.lock.owner, state.lock.ownerTitle),
+      })
+    : t("panel.unlocked");
+}
+
+/** Survives tab restoration and app reloads (Paseo 0.13 tab state). */
+const panelStateSchema = z.object({
+  canvasId: idSchema.nullable().default(null),
+  listOpen: z.boolean().default(true),
+  listSide: z.enum(["left", "right"]).default("left"),
+});
+type PanelState = z.output<typeof panelStateSchema>;
+const defaultPanelState: PanelState = panelStateSchema.parse({});
+
+/** Screens have no workspace tab; they keep the same state in memory. */
+function useLocalTab(): PluginTab {
+  const [state, setState] = useState<unknown>(undefined);
+  return useMemo(
+    () => ({ state, setState, setModified: () => {} }),
+    [state],
+  );
+}
+
+export type CanvasPanelProps = Pick<
+  PluginWorkspacePanelProps,
+  "workspaceId" | "theme" | "host" | "layout" | "navigation"
+> & {
+  /** The workspace tab; a screen omits it. */
+  tab?: PluginTab;
+  selection?: CanvasSelection;
+  /** Opens the canvas in the full-page screen; omitted inside that screen. */
+  onOpenScreen?: (canvasId: string) => void;
+};
+
+export function CanvasPanel(props: CanvasPanelProps) {
   const [localSelection] = useState(createCanvasSelection);
-  const settings = useSettings(canvasSettings);
+  const localTab = useLocalTab();
+  // The link target is a preference of the viewing device (ADR 18).
+  const settings = useSettings(canvasDeviceSettings);
   const preference =
     settings.status === "ready"
       ? settings.values.openLinksIn
-      : defaultCanvasSettings.openLinksIn;
+      : defaultCanvasDeviceSettings.openLinksIn;
   const openBrowser = props.navigation?.openBrowser;
   const openLink = useMemo(
     () =>
@@ -105,6 +153,7 @@ export function CanvasPanel(
           <WorkspaceCanvas
             key={props.workspaceId}
             {...props}
+            tab={props.tab ?? localTab}
             selection={props.selection ?? localSelection}
             singlePane={singlePane}
           />
@@ -120,13 +169,24 @@ function WorkspaceCanvas({
   layout,
   singlePane,
   selection,
+  tab,
   onOpenScreen,
-}: PluginWorkspacePanelProps & {
+}: CanvasPanelProps & {
   singlePane: boolean;
   selection: CanvasSelection;
-  onOpenScreen?: (canvasId: string) => void;
+  tab: PluginTab;
 }) {
   const colors = theme.colors;
+  const { t } = useText();
+  const [panelState, setPanelState] = useTabState(
+    tab,
+    panelStateSchema,
+    defaultPanelState,
+  );
+  useState(() => {
+    // A canvas opened from a timeline row wins over the restored one.
+    if (panelState.canvasId) selection.restore(workspaceId, panelState.canvasId);
+  });
   const { editor, state: edit } = useCanvasEditor(workspaceId, selection);
   const updateError = useCanvasUpdates(workspaceId);
   const selected = useSyncExternalStore(
@@ -135,8 +195,19 @@ function WorkspaceCanvas({
   );
   const setSelected = (canvasId: string | null) =>
     selection.select(workspaceId, canvasId);
-  const [listOpen, setListOpen] = useState(true);
-  const [listSide, setListSide] = useState<"left" | "right">("left");
+  const { listOpen, listSide } = panelState;
+  const updatePanel = (change: Partial<PanelState>) =>
+    setPanelState({ ...panelState, ...change });
+  useEffect(() => {
+    if (selected !== panelState.canvasId)
+      setPanelState({ ...panelState, canvasId: selected });
+  }, [selected, panelState, setPanelState]);
+  // Paseo asks before closing a tab with unsaved changes.
+  const modified = !!edit.draft && draftChanged(edit.draft);
+  useEffect(() => {
+    tab.setModified(modified);
+  }, [tab, modified]);
+  useEffect(() => () => tab.setModified(false), [tab]);
   const list = useRpcQuery(listCanvases, { workspaceId }, { retry: true });
   const listError = list.error ?? list.failureReason;
   const canvasId =
@@ -150,7 +221,7 @@ function WorkspaceCanvas({
   const navigation = singlePane ? (
     <ToolbarButton
       icon="ArrowLeft"
-      accessibilityLabel="Back to canvases"
+      accessibilityLabel={t("panel.back")}
       onPress={() => setSelected(null)}
     />
   ) : (
@@ -164,8 +235,8 @@ function WorkspaceCanvas({
             ? "PanelRightClose"
             : "PanelRightOpen"
       }
-      accessibilityLabel={listOpen ? "Hide canvas list" : "Show canvas list"}
-      onPress={() => setListOpen((open) => !open)}
+      accessibilityLabel={listOpen ? t("panel.hideList") : t("panel.showList")}
+      onPress={() => updatePanel({ listOpen: !listOpen })}
     />
   );
   const navigationSide = singlePane ? "left" : listSide;
@@ -185,7 +256,7 @@ function WorkspaceCanvas({
           accessibilityRole="alert"
           style={{ ...metaText, color: colors.statusWarning, padding: 12 }}
         >
-          Live updates interrupted. Reconnecting…
+          {t("panel.updatesInterrupted")}
         </Text>
       )}
       <View
@@ -230,28 +301,34 @@ function WorkspaceCanvas({
                   accessibilityRole="header"
                   style={{ ...titleText, color: colors.foreground }}
                 >
-                  Canvases
+                  {t("panel.canvases")}
                 </Text>
                 <View style={{ height: 20, justifyContent: "center" }}>
                   <Text style={{ ...metaText, color: colors.foregroundMuted }}>
                     {list.data
-                      ? `${list.data.items.length} ${list.data.items.length === 1 ? "canvas" : "canvases"}`
-                      : "Loading…"}
+                      ? t("panel.count", { count: list.data.items.length })
+                      : t("common.loading")}
                   </Text>
                 </View>
               </View>
               <ToolbarButton
                 icon="Plus"
-                label="New canvas"
+                label={t("panel.newCanvas")}
                 disabled={edit.busy}
                 onPress={() => editor.newCanvas()}
               />
               {!singlePane && (
                 <ToolbarButton
                   icon={listSide === "left" ? "PanelRight" : "PanelLeft"}
-                  accessibilityLabel={`Move canvas list to ${listSide === "left" ? "right" : "left"}`}
+                  accessibilityLabel={
+                    listSide === "left"
+                      ? t("panel.moveListRight")
+                      : t("panel.moveListLeft")
+                  }
                   onPress={() =>
-                    setListSide((side) => (side === "left" ? "right" : "left"))
+                    updatePanel({
+                      listSide: listSide === "left" ? "right" : "left",
+                    })
                   }
                 />
               )}
@@ -261,7 +338,7 @@ function WorkspaceCanvas({
                 theme={theme}
                 error={listError}
                 stale={!!list.data}
-                subject="canvases"
+                subject={t("panel.loadListFailed")}
               />
             )}
             <ScrollView
@@ -269,13 +346,13 @@ function WorkspaceCanvas({
               contentContainerStyle={{ flexGrow: 1, padding: 8, gap: 4 }}
             >
               {list.isLoading && !listError && (
-                <CenteredText theme={theme}>Loading…</CenteredText>
+                <CenteredText theme={theme}>{t("common.loading")}</CenteredText>
               )}
               {list.data?.items.length === 0 && (
                 <EmptyState
                   icon={null}
-                  title="No canvases yet"
-                  description="Create a canvas or ask an agent to create one"
+                  title={t("panel.empty")}
+                  description={t("panel.emptyHint")}
                   style={{ flex: 1, padding: 16 }}
                 />
               )}
@@ -332,7 +409,7 @@ function WorkspaceCanvas({
                   <View style={{ flex: 1 }} />
                   {navigationSide === "right" && navigation}
                 </View>
-                <CenteredText theme={theme}>Select a canvas</CenteredText>
+                <CenteredText theme={theme}>{t("panel.select")}</CenteredText>
               </>
             )}
           </View>
@@ -360,10 +437,11 @@ export function CanvasRow({
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const { t } = useText();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${title}`}
+      accessibilityLabel={t("panel.openRow", { title })}
       accessibilityState={{ selected: active }}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
@@ -404,8 +482,8 @@ export function CanvasRow({
           style={{ ...metaText, color: theme.colors.foregroundMuted }}
         >
           {workspaceName
-            ? `${workspaceName} · ${lockLabel(state)}`
-            : lockLabel(state)}
+            ? `${workspaceName} · ${lockLabel(t, state)}`
+            : lockLabel(t, state)}
         </Text>
       </View>
       <Icon
@@ -444,7 +522,7 @@ function CanvasDetail({
 }) {
   const colors = theme.colors;
   const toast = useToast();
-
+  const { t } = useText();
   const [mode, setMode] = useState<"preview" | "source">("preview");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detail = useRpcQuery(
@@ -474,7 +552,7 @@ function CanvasDetail({
             numberOfLines={1}
             style={{ ...titleText, color: colors.foreground }}
           >
-            {canvas?.title ?? "Canvas"}
+            {canvas?.title ?? t("plugin.title")}
           </Text>
           <View
             style={{
@@ -489,8 +567,8 @@ function CanvasDetail({
                 <Badge
                   label={
                     canvas.editState.status === "locked"
-                      ? "Editing"
-                      : "Unlocked"
+                      ? t("panel.editing")
+                      : t("panel.unlocked")
                   }
                   variant="neutral"
                   styleVariant="outline"
@@ -513,7 +591,8 @@ function CanvasDetail({
                       color: colors.foregroundMuted,
                     }}
                   >
-                    {editorLabel(
+                    {editorName(
+                      t,
                       canvas.editState.lock.owner,
                       canvas.editState.lock.ownerTitle,
                     )}
@@ -526,13 +605,13 @@ function CanvasDetail({
         {onOpenScreen && (
           <ToolbarButton
             icon="Maximize2"
-            accessibilityLabel="Open in full screen"
+            accessibilityLabel={t("panel.fullScreen")}
             onPress={() => onOpenScreen(canvasId)}
           />
         )}
         <ToolbarButton
           icon="Info"
-          label="Details"
+          label={t("panel.details")}
           disabled={!canvas}
           onPress={() => setDetailsOpen(true)}
         />
@@ -555,26 +634,26 @@ function CanvasDetail({
           <>
             <ToolbarButton
               icon="Pencil"
-              label="Edit"
+              label={t("panel.edit")}
               disabled={busy || canvas.editState.status === "locked"}
               onPress={onEdit}
             />
             <ToolbarButton
               icon="Trash2"
-              label="Delete"
+              label={t("panel.delete")}
               disabled={busy || canvas.editState.status === "locked"}
               onPress={() => onDelete(canvas)}
             />
             <ToolbarButton
               icon="Copy"
-              label="Copy"
-              accessibilityLabel="Copy content"
+              label={t("panel.copy")}
+              accessibilityLabel={t("panel.copyContent")}
               onPress={async () => {
                 try {
                   await copyText(canvas.content);
-                  toast.show("Content copied");
+                  toast.show(t("panel.copied"));
                 } catch {
-                  toast.error("Unable to copy content");
+                  toast.error(t("panel.copyFailed"));
                 }
               }}
             />
@@ -588,8 +667,8 @@ function CanvasDetail({
             >
               <Tabs
                 tabs={[
-                  { id: "preview", label: "Preview", icon: "Eye" },
-                  { id: "source", label: "Code", icon: "Code" },
+                  { id: "preview", label: t("panel.preview"), icon: "Eye" },
+                  { id: "source", label: t("panel.code"), icon: "Code" },
                 ]}
                 activeTab={mode}
                 onTabChange={(id) => setMode(id as "preview" | "source")}
@@ -601,7 +680,7 @@ function CanvasDetail({
         ) : null}
       </View>
       {missing ? (
-        <CenteredText theme={theme}>This canvas has been deleted</CenteredText>
+        <CenteredText theme={theme}>{t("panel.deleted")}</CenteredText>
       ) : (
         <>
           {detailError && (
@@ -609,11 +688,11 @@ function CanvasDetail({
               theme={theme}
               error={detailError}
               stale={!!canvas}
-              subject="content"
+              subject={t("panel.loadContentFailed")}
             />
           )}
           {detail.isLoading && !detailError && (
-            <CenteredText theme={theme}>Loading…</CenteredText>
+            <CenteredText theme={theme}>{t("common.loading")}</CenteredText>
           )}
           {canvas && (
             <ReviewDocument
@@ -650,23 +729,28 @@ function CanvasDetails({
   onOpenChange: (open: boolean) => void;
 }) {
   const { isCompact } = usePluginTheme();
+  const { t } = useText();
   const fields: [string, string | number][] = [
-    ["Title", canvas.title],
-    ["Canvas ID", canvas.canvasId],
-    ["Revision", canvas.revision],
-    ["Last saved by", editorLabel(canvas.updatedBy)],
+    [t("details.title"), canvas.title],
+    [t("details.canvasId"), canvas.canvasId],
+    [t("details.revision"), canvas.revision],
+    [t("details.updatedBy"), editorName(t, canvas.updatedBy)],
   ];
   if (canvas.editState.status === "locked") {
     const lock = canvas.editState.lock;
     fields.push(
-      ["Editor", editorLabel(lock.owner, lock.ownerTitle)],
-      ["Lock acquired", lock.acquiredAt],
-      ["Last renewed", lock.renewedAt],
-      ["Expires", lock.expiresAt],
+      [t("details.editor"), editorName(t, lock.owner, lock.ownerTitle)],
+      [t("details.acquired"), lock.acquiredAt],
+      [t("details.renewed"), lock.renewedAt],
+      [t("details.expires"), lock.expiresAt],
     );
   }
   return (
-    <Modal title="Canvas details" open={open} onOpenChange={onOpenChange}>
+    <Modal
+      title={t("details.heading")}
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <Modal.Content>
         {fields.map(([label, value]) => (
           <KeyValue
@@ -696,8 +780,10 @@ function ReadError({
   theme: PluginTheme;
   error: Error;
   stale: boolean;
+  /** The translated failure headline. */
   subject: string;
 }) {
+  const { t } = useText();
   return (
     <View
       accessibilityRole="alert"
@@ -709,12 +795,10 @@ function ReadError({
       }}
     >
       <Text style={{ color: theme.colors.statusDanger, fontSize: 12 }}>
-        Unable to load {subject}
+        {subject}
       </Text>
       <Text style={{ ...metaText, color: theme.colors.foregroundMuted }}>
-        {stale
-          ? "Showing the last loaded content. Retrying automatically."
-          : "Retrying automatically."}
+        {stale ? t("panel.retryingStale") : t("panel.retrying")}
       </Text>
       <Text
         selectable

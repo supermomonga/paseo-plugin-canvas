@@ -216,10 +216,15 @@ test("closing an agent releases only that agent's leases and publishes the chang
   await store.acquire(a, second.canvasId);
   await store.acquire(b, other.canvasId);
   const user = await store.beginUserEdit("workspace-a", userCanvas.canvasId);
-  const { cursor } = await store.waitForChange("workspace-a", null);
-  const changed = store.waitForChange("workspace-a", cursor);
+  const cursors: string[] = [];
+  const watcher = store.watchChanges("workspace-a", {
+    change: (cursor) => cursors.push(cursor),
+    closed: () => {},
+  });
   expect(await store.releaseAgent("agent-a")).toBe(2);
-  expect((await changed).cursor).not.toBe(cursor);
+  expect(cursors.length).toBeGreaterThan(0);
+  expect(cursors.at(-1)).not.toBe(watcher.cursor);
+  watcher.stop();
   const states = Object.fromEntries(
     (await store.list("workspace-a")).items.map((item) => [
       item.title,

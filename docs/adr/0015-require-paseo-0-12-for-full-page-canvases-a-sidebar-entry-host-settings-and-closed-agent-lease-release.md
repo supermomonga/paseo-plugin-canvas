@@ -10,6 +10,8 @@ links:
   kind: amends
 - target: 4
   kind: relatesto
+- target: 18
+  kind: amendedby
 ---
 
 # Require Paseo 0.12 for full-page canvases, a sidebar entry, host settings and closed-agent lease release

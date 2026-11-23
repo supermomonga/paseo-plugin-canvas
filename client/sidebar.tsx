@@ -1,6 +1,5 @@
 import { Text, View } from "react-native";
-import { ScrollView } from "@getpaseo/plugin/client/react-native";
-import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import { ScrollView, SidebarRow } from "@getpaseo/plugin/client/ui";
 import type {
   PluginPopoverProps,
   PluginSidebarItemProps,
@@ -14,6 +13,7 @@ import { recentCanvases } from "../shared/contracts";
 import { CanvasRow } from "./panel";
 import { CANVAS_SCREEN, canvasScreenParams, useHostNotice } from "./screen";
 import { metaText, titleText } from "./controls";
+import { useText } from "./i18n";
 
 const RECENT_LIMIT = 10;
 
@@ -38,6 +38,7 @@ export function RecentCanvasesPopover({
   openScreen,
 }: PluginPopoverProps) {
   const colors = theme.colors;
+  const { t } = useText();
   const notice = useHostNotice(host);
   const recent = useRpcQuery(
     recentCanvases,
@@ -72,23 +73,23 @@ export function RecentCanvasesPopover({
             paddingVertical: 4,
           }}
         >
-          Recent canvases
+          {t("sidebar.recent")}
         </Text>
         {notice ? (
           message(notice, colors.statusWarning, true)
         ) : error ? (
           message(
-            `Unable to load canvases: ${error.message}`,
+            t("sidebar.loadFailed", { message: error.message }),
             colors.statusDanger,
             true,
           )
         ) : !recent.data ? (
-          message("Loading…", colors.foregroundMuted)
+          message(t("common.loading"), colors.foregroundMuted)
         ) : recent.data.items.length === 0 ? (
           <EmptyState
             icon={null}
-            title="No canvases yet"
-            description="Create a canvas in a workspace or ask an agent to create one"
+            title={t("sidebar.empty")}
+            description={t("sidebar.emptyHint")}
             style={{ padding: 16 }}
           />
         ) : (

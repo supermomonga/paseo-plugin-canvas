@@ -1,18 +1,18 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput } from "@getpaseo/plugin";
 import { sendReview, retryReview, type ReviewDelivery } from "../shared/review";
-import type { Sessions } from "./sessions";
 import type { ReviewStore } from "./reviews";
 import { CanvasError } from "./errors";
 type Paseo = PluginHandlerContext["paseo"];
 // Derived from the host SDK: npm installations omit @getpaseo/client (ADR 14).
 type PaseoAgentPage = Awaited<ReturnType<Paseo["agents"]["list"]>>;
 type PaseoAgent = PaseoAgentPage["entries"][number]["agent"];
-async function availableAgents(
-  sessions: Sessions,
-  paseo: Paseo,
-  workspaceId: string,
-) {
+/**
+ * Every visible agent of the workspace can receive a review: each interactive
+ * opening adds the Canvas MCP server, and a session opened before the plugin
+ * started reopens with it before its next prompt (ADR 18).
+ */
+async function availableAgents(paseo: Paseo, workspaceId: string) {
   const agents = new Map<string, PaseoAgent>();
   let cursor: string | null = null;
   do {
@@ -22,31 +22,31 @@ async function availableAgents(
       page: { limit: 200, ...(cursor ? { cursor } : {}) },
     });
     for (const { agent } of page.entries) {
-      if (agent.workspaceId === workspaceId && !agent.archivedAt)
+      if (
+        agent.workspaceId === workspaceId &&
+        !agent.archivedAt &&
+        // Background agents are helpers hidden from the user's lists.
+        !agent.background
+      )
         agents.set(agent.id, agent);
     }
     cursor = page.pageInfo.nextCursor;
   } while (cursor);
-
-  // Bindings authorize MCP access; they do not establish that an agent exists.
-  // Check them after listing, including any revocations received while awaiting it.
-  const registered = new Set(sessions.eligible(workspaceId).map((s) => s.id));
-  return [...agents.values()].filter((agent) => registered.has(agent.id));
+  return [...agents.values()];
 }
 async function target(
-  sessions: Sessions,
   paseo: Paseo,
   workspaceId: string,
   id: string,
   allowInterrupt: boolean,
 ) {
-  const agent = (await availableAgents(sessions, paseo, workspaceId)).find(
+  const agent = (await availableAgents(paseo, workspaceId)).find(
     (agent) => agent.id === id,
   );
   if (!agent)
     throw new CanvasError(
       "RECIPIENT_UNAVAILABLE",
-      "Session is no longer available in this workspace with active Canvas MCP access",
+      "Session is no longer available in this workspace",
     );
   if (agent.pendingPermissions?.length)
     throw new CanvasError(
@@ -60,12 +60,8 @@ async function target(
     );
   return paseo.agents.ref(agent);
 }
-export async function recipients(
-  sessions: Sessions,
-  paseo: Paseo,
-  workspaceId: string,
-) {
-  const candidates = await availableAgents(sessions, paseo, workspaceId);
+export async function recipients(paseo: Paseo, workspaceId: string) {
+  const candidates = await availableAgents(paseo, workspaceId);
   const output = [];
   const catalogs = new Map<
     string,
@@ -104,7 +100,6 @@ export async function recipients(
 }
 async function send(
   store: ReviewStore,
-  sessions: Sessions,
   paseo: Paseo,
   input: { workspaceId: string; canvasId: string; allowInterrupt: boolean },
   delivery: ReviewDelivery,
@@ -113,7 +108,6 @@ async function send(
   let started = false;
   try {
     const agent = await target(
-      sessions,
       paseo,
       input.workspaceId,
       delivery.agentId,
@@ -146,12 +140,10 @@ async function send(
 }
 export async function dispatchReview(
   store: ReviewStore,
-  sessions: Sessions,
   paseo: Paseo,
   input: RpcInput<typeof sendReview>,
 ) {
   await target(
-    sessions,
     paseo,
     input.workspaceId,
     input.agentId,
@@ -163,11 +155,10 @@ export async function dispatchReview(
     input.agentId,
     input.threads,
   );
-  return send(store, sessions, paseo, input, delivery);
+  return send(store, paseo, input, delivery);
 }
 export async function retryDispatch(
   store: ReviewStore,
-  sessions: Sessions,
   paseo: Paseo,
   input: RpcInput<typeof retryReview>,
 ) {
@@ -177,7 +168,6 @@ export async function retryDispatch(
     input.requestId,
   );
   await target(
-    sessions,
     paseo,
     input.workspaceId,
     original.agentId,
@@ -185,7 +175,6 @@ export async function retryDispatch(
   );
   return send(
     store,
-    sessions,
     paseo,
     input,
     await store.retry(input.workspaceId, input.canvasId, input.requestId),

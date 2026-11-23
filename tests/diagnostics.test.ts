@@ -19,19 +19,32 @@ test("reports precise document lines in multiple Mermaid fences, including neste
     "> ```",
   ].join("\r\n");
   const result = diagnoseMarkdown(source);
+  // One note per diagram: Paseo's renderer shows it, and Canvas points at the
+  // first line outside its own subset.
   expect(
-    result.diagnostics.map(({ block, line, source }) => ({
+    result.diagnostics.map(({ block, line, endLine, source, severity, code }) => ({
       block,
       line,
+      endLine,
       source,
+      severity,
+      code,
     })),
   ).toEqual([
-    { block: 2, line: 11, source: "loop retry" },
-    { block: 2, line: 12, source: "end" },
+    {
+      block: 2,
+      line: 11,
+      endLine: 12,
+      source: "loop retry",
+      severity: "info",
+      code: "MERMAID_STANDARD_RENDERER",
+    },
   ]);
-  expect(
-    result.diagnostics.every((d) => d.hint.includes("explicit steps")),
-  ).toBe(true);
+  expect(result.diagnostics[0].message).toContain(
+    "Paseo's standard Mermaid renderer",
+  );
+  expect(result.diagnostics[0].hint).toContain("No change is needed");
+  expect(result.diagnostics[0].hint).toContain("explicit steps");
 });
 
 test.each([
@@ -58,14 +71,14 @@ test("ignores Mermaid-looking prose and other code languages; repaired diagrams 
   });
 });
 
-test("large numbers of unsupported lines produce bounded, explicitly truncated diagnostics", () => {
+test("many diagrams outside the subset produce bounded, explicitly truncated diagnostics", () => {
   const result = diagnoseMarkdown(
-    "```mermaid\nsequenceDiagram\nA->>B: hello\n" +
-      "loop retry\n".repeat(100) +
-      "```",
+    "```mermaid\nsequenceDiagram\nA->>B: hello\nloop retry\nend\n```\n\n".repeat(
+      40,
+    ),
   );
   expect(result.diagnostics).toHaveLength(32);
-  expect(result.diagnosticCount).toBe(100);
+  expect(result.diagnosticCount).toBe(40);
   expect(result.diagnosticsTruncated).toBe(true);
 });
 
@@ -73,8 +86,11 @@ test("uses the preview's Markdown grammar inside details, math, and code fences"
   const details =
     "<details>\n<summary>Diagram</summary>\n\n```mermaid\nsequenceDiagram\nloop retry\nend\n```\n\n</details>";
   expect(
-    diagnoseMarkdown(details).diagnostics.map((entry) => entry.line),
-  ).toEqual([6, 7]);
+    diagnoseMarkdown(details).diagnostics.map((entry) => [
+      entry.line,
+      entry.endLine,
+    ]),
+  ).toEqual([[6, 7]]);
   expect(diagnoseMarkdown("$$\n```mermaid\npie\n```\n$$").diagnostics).toEqual(
     [],
   );

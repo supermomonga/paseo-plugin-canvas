@@ -1,15 +1,19 @@
-import { mkdtemp, cp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, cp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { compilePlugin } from "../node_modules/@getpaseo/server/dist/server/server/plugins/compiler.js";
 
 // Require an explicit runtime: never silently substitute Node for Hermes.
+// Use the Hermes of the React Native release the Paseo app ships.
+const { version: reactNative } = JSON.parse(
+  await readFile(new URL("../node_modules/react-native/package.json", import.meta.url), "utf8"),
+);
 const hermes = process.argv[2];
-if (!hermes) throw new Error("Usage: npm run test:native -- /absolute/path/to/hermes (React Native 0.81.5)");
+if (!hermes) throw new Error(`Usage: npm run test:native -- /absolute/path/to/hermes (React Native ${reactNative})`);
 const version = spawnSync(hermes, ["-version"], { encoding: "utf8" });
 if (version.error) throw version.error;
-if (version.status !== 0 || !version.stdout.includes("for RN 0.81.5"))
-  throw new Error("Use the Hermes executable distributed with React Native 0.81.5");
+if (version.status !== 0 || !version.stdout.includes(`for RN ${reactNative}`))
+  throw new Error(`Use the Hermes executable distributed with React Native ${reactNative}`);
 
 const root = process.cwd();
 await mkdir(path.join(root, ".test-output"), { recursive: true });
@@ -71,35 +75,40 @@ var modules = {
     StyleSheet: {create: function(value){return value;}}, Platform: {OS:"android"},
     AppState: {currentState:"active", addEventListener:function(){return {remove:function(){}};}}
   },
-  "@getpaseo/plugin": {defineRpc: function(value){return value;}},
-  "@getpaseo/plugin/client": {},
-  "@getpaseo/plugin/client/react-native": {},
+  "@getpaseo/plugin": {
+    defineRpc: function(value){return value;}, defineSubscription: function(value){return value;},
+    defineSettings: function(value){return value;}, defineAttachmentSource: function(value){return value;},
+    PluginAttachmentSearchPayloadSchema: schema
+  },
+  "@getpaseo/plugin/client": {
+    defineTranslations: function(definition){
+      assert(definition.resources.en && definition.resources.ja, "translations");
+      return {resources: definition.resources, message: function(key){return {key: key};}};
+    }
+  },
   "@getpaseo/plugin/client/ui": {},
   "@tanstack/react-query": {}, "zod": {z:schema}
 };
 function require(name) { assert(name in modules, "Unexpected host import: " + name); return modules[name]; }
-var panels=[], renderers=[], commands=[], headers=[], opened=[];
-var directoryUnsubscribed=false;
+var panels=[], renderers=[], commands=[], screens=[], sidebar=[], settings=[], slash=[], attachments=[], opened=[];
 function register(list) {return function(item){list.push(item);return function(){list.splice(list.indexOf(item),1);};};}
 var cleanup=(0,eval)(${JSON.stringify(production.clientBundle)})(require).default({
   addWorkspacePanel:register(panels), addTimelineRenderer:register(renderers), addCommandCenterItem:register(commands),
-  addHeaderButton:function(item){headers.push(item);return {remove:function(){headers.splice(headers.indexOf(item),1);}};},
-  openPanel:function(id,options){opened.push({id:id,workspaceId:options.workspaceId});},
-  paseo:{workspaces:{subscribe:function(){return function(){directoryUnsubscribed=true;};},list:function(){return Promise.resolve({entries:[{id:"native-workspace"}],pageInfo:{hasMore:false}});}}}
+  addScreen:register(screens), addSidebarHeaderItem:register(sidebar), addSettingsScreen:register(settings),
+  addSlashCommand:register(slash), addAttachmentSource:register(attachments),
+  openPanel:function(id,options){opened.push({id:id,workspaceId:options.workspaceId});}
 });
 Promise.resolve().then(function(){
-assert(headers.length===1,"native header registration");
-headers[0].button.behavior.onPress();
-assert(opened[0].id==="canvas" && opened[0].workspaceId==="native-workspace","native header navigation");
-assert(panels.length===1 && renderers.length===1 && commands.length===1,"plugin registration");
+assert(panels.length===1 && renderers.length===1 && commands.length===2 && screens.length===1 &&
+  sidebar.length===1 && settings.length===1 && slash.length===1 && attachments.length===1,"plugin registration");
+assert(panels[0].title.key==="plugin.title" && slash[0].name==="canvas","translated registration");
 var selection=panels[0].Component({}).props.selection;
 selection.select("workspace","canvas");
 assert(selection.get("workspace")==="canvas","production selection");
 cleanup();
-assert(directoryUnsubscribed && headers.length===0,"native header cleanup");
-assert(panels.length===0 && renderers.length===0 && commands.length===0,"plugin cleanup");
+assert(panels.length===0 && renderers.length===0 && commands.length===0 && slash.length===0 && attachments.length===0,"plugin cleanup");
 (0,eval)(${JSON.stringify(probe.clientBundle)})(require).default()();
-print("Hermes native smoke passed: startup, header navigation, selection, user drafts and discard confirmation, Mermaid layouts and diagnostics, cleanup");
+print("Hermes native smoke passed: startup, registrations, selection, user drafts and discard confirmation, Mermaid layouts and diagnostics, cleanup");
 }).catch(function(error){print(error.stack);});
 `;
   const script = path.join(dir, "smoke.js");

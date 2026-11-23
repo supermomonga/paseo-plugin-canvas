@@ -1,7 +1,9 @@
 {
   "id": "paseo-canvas",
+  "name": "Canvas",
+  "description": "Write, review and share Markdown documents with agents in your workspace",
   "requirements": {
-    "paseo": ">=0.12.0"
+    "paseo": ">=0.17.1"
   },
   "build": [
     ["npm", "ci", "--include=dev"],

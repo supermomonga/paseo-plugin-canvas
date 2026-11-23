@@ -15,3 +15,4 @@
 * [15. Require Paseo 0.12 for full-page canvases, a sidebar entry, host settings and closed-agent lease release](0015-require-paseo-0-12-for-full-page-canvases-a-sidebar-entry-host-settings-and-closed-agent-lease-release.md)
 * [16. Rasterize SVG on a daemon worker and retry unrenderable remote images from the viewing device](0016-rasterize-svg-on-a-daemon-worker-and-retry-unrenderable-remote-images-from-the-viewing-device.md)
 * [17. Skip directory synchronization on Windows hosts](0017-skip-directory-synchronization-on-windows-hosts.md)
+* [18. Require Paseo 0.17 and give every agent opening launch-only Canvas MCP, live subscriptions, tab state, device settings, translations and host Mermaid rendering](0018-require-paseo-0-17-and-give-every-agent-opening-launch-only-canvas-mcp-live-subscriptions-tab-state-device-settings-translations-and-host-mermaid-rendering.md)

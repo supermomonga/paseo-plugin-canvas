@@ -23,10 +23,10 @@ async function activeWorkspaces(paseo: Paseo) {
   }
 }
 
-export async function recentCanvases(
+/** Every canvas of the host's active workspaces, most recently updated first. */
+export async function hostCanvases(
   store: Pick<CanvasStore, "list">,
   paseo: Paseo,
-  limit: number,
 ) {
   const workspaces = (await activeWorkspaces(paseo)).filter(
     (workspace) => idSchema.safeParse(workspace.id).success,
@@ -49,13 +49,19 @@ export async function recentCanvases(
       }
     }),
   );
-  const items = lists
+  return lists
     .flat()
     .sort(
       (a, b) =>
         b.updatedAt.localeCompare(a.updatedAt) ||
         a.canvasId.localeCompare(b.canvasId),
-    )
-    .slice(0, limit);
-  return { items };
+    );
+}
+
+export async function recentCanvases(
+  store: Pick<CanvasStore, "list">,
+  paseo: Paseo,
+  limit: number,
+) {
+  return { items: (await hostCanvases(store, paseo)).slice(0, limit) };
 }

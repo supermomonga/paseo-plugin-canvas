@@ -147,7 +147,6 @@ function Preview() {
         ) : (
           <CanvasPanel
             selection={selection}
-            context="workspace"
             workspaceId="test"
             host={{ id: "test", label: "Test" }}
             layout={{ compact: width < 500, platform: "web" }}

@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseDocument } from "../../server/document";
-import { CanvasChanges } from "../../server/changes";
 import { GraphicsRenderer } from "../../server/graphics";
 import { workspaceImage } from "../../server/images";
 import { getFixtureQuery } from "./query";
@@ -14,7 +13,6 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 const userHandlers = new Map<string, (input: unknown) => Promise<unknown>>();
 const root = path.resolve(".test-output/visual");
 const graphics = new GraphicsRenderer();
-const changes = new CanvasChanges();
 const markdown = await readFile("tests/fixtures/gfm.md", "utf8");
 const store = await CanvasStore.open(
   await mkdtemp(path.join(tmpdir(), "canvas-review-ui-")),
@@ -22,9 +20,13 @@ const store = await CanvasStore.open(
 registerUserEditing(
   {
     handle(contract, handler) {
-      userHandlers.set(contract.name, async (input) =>
-        contract.output.parse(
-          await handler(contract.input.parse(input), {} as never),
+      const rpc = contract as Extract<typeof contract, { output: unknown }>;
+      userHandlers.set(rpc.name, async (input) =>
+        rpc.output.parse(
+          await (handler as (input: unknown, context: never) => unknown)(
+            rpc.input.parse(input),
+            {} as never,
+          ),
         ),
       );
     },
@@ -52,8 +54,22 @@ const server = createServer(async (req, res) => {
       const name = req.url.slice(5);
       let result;
       if (userHandlers.has(name)) result = await userHandlers.get(name)!(input);
-      else if (name === "canvas.wait_for_change")
-        result = await store.waitForChange(input.workspaceId, input.cursor);
+      else if (name === "canvas.watch")
+        // Long-polls stand in for the daemon subscription in this fixture.
+        result = await new Promise((resolve) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const watcher = store.watchChanges(input.workspaceId, {
+            change: (cursor) => finish(cursor),
+            closed: () => finish(watcher.cursor),
+          });
+          const finish = (cursor: string) => {
+            clearTimeout(timer);
+            watcher.stop();
+            resolve({ cursor });
+          };
+          if (input.cursor !== watcher.cursor) finish(watcher.cursor);
+          else timer = setTimeout(() => finish(watcher.cursor), 20_000);
+        });
       else if (name === "canvas.render_graphic")
         result = await graphics.render(input);
       else if (name === "canvas.read_image")
@@ -123,7 +139,9 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify(result));
       return;
     }
-    const filename = req.url === "/" ? "index.html" : (req.url?.slice(1) ?? "");
+    // `?locale=ja` and other query strings select options in the page.
+    const pathname = new URL(req.url ?? "/", "http://fixture").pathname;
+    const filename = pathname === "/" ? "index.html" : pathname.slice(1);
     if (!/^[\w.-]+$/.test(filename)) {
       res.writeHead(404).end();
       return;

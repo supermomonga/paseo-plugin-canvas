@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
-import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, useToast } from "@getpaseo/plugin/client/ui";
 import { SettingsSelect } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Button, getClientHost, useRpcQuery } from "paseo-plugin-helper/client";
@@ -12,6 +12,60 @@ import {
   type ReviewThread,
 } from "../shared/review";
 import { ToolbarButton, metaText } from "./controls";
+import { useText } from "./i18n";
+
+type Translate = ReturnType<typeof useText>["t"];
+type ReviewTextKey =
+  | "review.errors.recipientUnavailable"
+  | "review.errors.permissionPending"
+  | "review.errors.interruptConfirmation"
+  | "review.errors.resultUnknown"
+  | "review.errors.sessionUnchecked"
+  | "review.outdatedReasons.snapshot"
+  | "review.outdatedReasons.limit"
+  | "review.outdatedReasons.changed"
+  | "review.outdatedReasons.ambiguous";
+
+// The daemon reports these in English; known ones follow the app language.
+const serverCodes: Record<string, ReviewTextKey> = {
+  RECIPIENT_UNAVAILABLE: "review.errors.recipientUnavailable",
+  PERMISSION_PENDING: "review.errors.permissionPending",
+  INTERRUPT_CONFIRMATION: "review.errors.interruptConfirmation",
+};
+const serverTexts: Record<string, ReviewTextKey> = {
+  "Session is no longer available in this workspace":
+    "review.errors.recipientUnavailable",
+  // Stored by earlier versions in delivery attempts.
+  "Session is no longer available in this workspace with active Canvas MCP access":
+    "review.errors.recipientUnavailable",
+  "Handle this session's pending permission in Paseo before sending":
+    "review.errors.permissionPending",
+  "This session is running. Sending may interrupt its current work":
+    "review.errors.interruptConfirmation",
+  "Send result is unknown. Check the session before retrying.":
+    "review.errors.resultUnknown",
+  "Session could not be checked": "review.errors.sessionUnchecked",
+  "The saved selection does not match its snapshot":
+    "review.outdatedReasons.snapshot",
+  "Tracking exceeded its computation limit": "review.outdatedReasons.limit",
+  "The selected source was changed or deleted":
+    "review.outdatedReasons.changed",
+  "Repeated text makes the selection ambiguous":
+    "review.outdatedReasons.ambiguous",
+};
+
+/** Translates a known review message from the daemon; others stay as sent. */
+export function reviewServerText(t: Translate, text: string, code?: string) {
+  const key = (code && serverCodes[code]) || serverTexts[text];
+  return key ? t(key) : text;
+}
+
+/** The message of a failed review RPC, translated when Canvas knows it. */
+export function reviewErrorText(t: Translate, error: unknown) {
+  const text = error instanceof Error ? error.message : String(error);
+  const code = (error as { code?: unknown } | null)?.code;
+  return reviewServerText(t, text, typeof code === "string" ? code : undefined);
+}
 
 export function ReviewSendDialog({
   workspaceId,
@@ -43,6 +97,7 @@ export function ReviewSendDialog({
     { retry: false },
   );
   const toast = useToast();
+  const { t } = useText();
   const colors = theme.colors;
   const [delivery, setDelivery] = useState(request);
   const [recipient, setRecipient] = useState(request?.agentId ?? "");
@@ -96,11 +151,11 @@ export function ReviewSendDialog({
       onRecorded();
       if (result.attempts.at(-1)?.status === "accepted") {
         onSent(result.threads.map((item) => item.threadId));
-        toast.show("Comments sent to agent", { variant: "success" });
+        toast.show(t("review.dialog.sent"), { variant: "success" });
         onClose();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(reviewErrorText(t, e));
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -108,7 +163,7 @@ export function ReviewSendDialog({
   }
   return (
     <Modal
-      title="Send to agent"
+      title={t("review.dialog.title")}
       icon={<Icon name="Send" size={18} color={colors.foreground} />}
       open
       onOpenChange={(open) => {
@@ -118,42 +173,48 @@ export function ReviewSendDialog({
       <Modal.Content>
         <View style={{ gap: 4 }}>
           <Text style={{ color: colors.foreground }}>
-            {delivery ? "Request comments" : "Selected comments"}
+            {delivery
+              ? t("review.dialog.requestComments")
+              : t("review.dialog.selectedComments")}
           </Text>
           <Text style={{ ...metaText, color: colors.foregroundMuted }}>
             {ids
               .map((id) =>
-                numbers.has(id) ? `#${numbers.get(id)}` : "Deleted comment",
+                numbers.has(id)
+                  ? t("review.dialog.commentNumber", {
+                      number: numbers.get(id)!,
+                    })
+                  : t("review.dialog.deletedComment"),
               )
               .join(", ")}
           </Text>
         </View>
         {!ids.length && (
           <Text style={{ color: colors.statusWarning }}>
-            Select unresolved comments before sending.
+            {t("review.dialog.selectUnresolved")}
           </Text>
         )}
         {!delivery && ids.length > 50 && (
           <Text style={{ color: colors.statusWarning }}>
-            Select up to 50 comments per request.
+            {t("review.dialog.tooMany")}
           </Text>
         )}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <SettingsSelect
-              label="Agent session"
+              label={t("review.dialog.recipient")}
               value={recipient}
               disabled={busy || !!delivery}
               options={[
-                { label: "Select a session", value: "" },
+                { label: t("review.dialog.selectRecipient"), value: "" },
                 ...(recipients.data ?? []).map((item) => ({
                   value: item.id,
                   label:
                     item.title +
                     (item.blocked
-                      ? " · Permission pending"
+                      ? t("review.dialog.permissionPending")
                       : item.running
-                        ? " · Running"
+                        ? t("review.dialog.running")
                         : ""),
                 })),
               ]}
@@ -165,14 +226,14 @@ export function ReviewSendDialog({
           </View>
           <ToolbarButton
             icon="RefreshCw"
-            accessibilityLabel="Refresh sessions"
+            accessibilityLabel={t("review.dialog.refresh")}
             onPress={() => void recipients.refetch()}
             disabled={busy || recipients.isFetching}
           />
         </View>
         {recipients.isLoading && (
           <Text style={{ color: colors.foregroundMuted }}>
-            Loading agent sessions…
+            {t("review.dialog.loading")}
           </Text>
         )}
         {recipients.error && (
@@ -180,33 +241,32 @@ export function ReviewSendDialog({
             accessibilityRole="alert"
             style={{ color: colors.statusDanger }}
           >
-            {recipients.error.message}
+            {reviewErrorText(t, recipients.error)}
           </Text>
         )}
         {recipients.data?.length === 0 && (
           <Text style={{ color: colors.foregroundMuted }}>
-            No sessions with Canvas MCP are available in this workspace.
+            {t("review.dialog.noRecipients")}
           </Text>
         )}
         {delivery && recipients.data && !target && (
           <Text style={{ color: colors.statusWarning }}>
-            The original agent session is unavailable. This request cannot be
-            retried until it is available again.
+            {t("review.dialog.originalUnavailable")}
           </Text>
         )}
         {target?.blocked && (
           <Text style={{ color: colors.statusWarning }}>
-            Handle the pending permission in Paseo before sending.
+            {t("review.dialog.handlePermission")}
           </Text>
         )}
         {target?.running && (
           <>
             <Text style={{ color: colors.statusWarning }}>
-              Sending may interrupt this session's current work.
+              {t("review.dialog.mayInterrupt")}
             </Text>
             <ToolbarButton
               icon={interrupt ? "CheckSquare" : "Square"}
-              label="Allow interruption"
+              label={t("review.dialog.allowInterruption")}
               disabled={busy}
               onPress={() => setInterrupt(!interrupt)}
             />
@@ -218,11 +278,12 @@ export function ReviewSendDialog({
             style={{ color: colors.statusWarning }}
           >
             {last.status === "unknown"
-              ? "Send result is unknown. Check the agent session before retrying; a retry may send twice."
-              : (last.error ??
-                (last.status === "sending"
-                  ? "Sending request…"
-                  : "The request could not be sent."))}
+              ? t("review.dialog.unknownResult")
+              : last.error
+                ? reviewServerText(t, last.error)
+                : last.status === "sending"
+                  ? t("review.dialog.sendingRequest")
+                  : t("review.dialog.notSent")}
           </Text>
         )}
         {error && (
@@ -238,12 +299,12 @@ export function ReviewSendDialog({
             icon="Send"
             label={
               busy
-                ? "Sending…"
+                ? t("review.dialog.sending")
                 : delivery
                   ? last?.status === "unknown"
-                    ? "Retry (may send twice)"
-                    : "Retry request"
-                  : "Send"
+                    ? t("review.retryUnknown")
+                    : t("review.retryRequest")
+                  : t("review.send")
             }
             variant="primary"
             disabled={disabled}
@@ -251,7 +312,7 @@ export function ReviewSendDialog({
           />
           <ToolbarButton
             icon="X"
-            label="Cancel"
+            label={t("review.cancel")}
             disabled={busy}
             onPress={onClose}
           />

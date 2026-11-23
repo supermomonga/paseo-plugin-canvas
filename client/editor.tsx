@@ -11,7 +11,7 @@ import {
   ScrollView,
   TextInput,
   useToast,
-} from "@getpaseo/plugin/client/react-native";
+} from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { getClientHost } from "paseo-plugin-helper/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,12 +29,70 @@ import {
   draftChanged,
   type CanvasEditor,
   type EditorState,
+  type EditorText,
 } from "./editing-state";
 import { refreshCanvases } from "./updates";
 import type { CanvasSelection } from "./selection";
 import { Markdown } from "./markdown";
 import type { Root as Document } from "hast";
 import { ToolbarButton, titleText, metaText } from "./controls";
+import { messages, useText } from "./i18n";
+
+type Translation = ReturnType<typeof useText>;
+const serverErrorCodes = [
+  "LOCKED",
+  "CONFLICT",
+  "NOT_FOUND",
+  "INVALID_INPUT",
+  "STORE_UNAVAILABLE",
+  "CORRUPT_DOCUMENT",
+  "INVALID_STORAGE",
+  "UNKNOWN",
+] as const;
+type ServerErrorCode = (typeof serverErrorCodes)[number];
+const isServerErrorCode = (code: string | undefined): code is ServerErrorCode =>
+  serverErrorCodes.includes(code as ServerErrorCode);
+
+/** Whether the app language has its own text for a daemon error code. */
+function translatesServerError(locale: string, code: ServerErrorCode) {
+  const resources = messages.resources as Record<
+    string,
+    { editing?: { server?: Record<string, unknown> } } | undefined
+  >;
+  return [locale, locale.split("-")[0]].some(
+    (language) =>
+      language !== "en" &&
+      typeof resources[language]?.editing?.server?.[code] === "string",
+  );
+}
+
+/**
+ * Daemon errors appear in the reader's language when it translates their code.
+ * Otherwise the daemon's message, which is more specific, stays as it is.
+ */
+export function describeFailure(
+  { t, locale }: Translation,
+  error: { code?: string; message: string },
+) {
+  return isServerErrorCode(error.code) &&
+    translatesServerError(locale, error.code)
+    ? t(`editing.server.${error.code}`)
+    : error.message;
+}
+
+/** Editor text that always follows the current app language. */
+function translatedEditorText(current: {
+  current: Translation;
+}): EditorText {
+  return {
+    refreshFailed: () => current.current.t("editing.errors.refreshFailed"),
+    changedWhileUnavailable: () =>
+      current.current.t("editing.errors.changedWhileUnavailable"),
+    paused: (reason) => current.current.t("editing.errors.paused", { reason }),
+    saveUncertain: () => current.current.t("editing.errors.saveUncertain"),
+    failure: (error) => describeFailure(current.current, error),
+  };
+}
 
 export function useCanvasEditor(
   workspaceId: string,
@@ -48,17 +106,24 @@ export function useCanvasEditor(
     cancel = host.useRpc(cancelCanvasEdit),
     remove = host.useRpc(deleteUserCanvas);
   const queryClient = useQueryClient();
+  const text = useText();
+  const currentText = useRef(text);
+  currentText.current = text;
   const [editor] = useState(() =>
-    createCanvasEditor(workspaceId, {
-      begin,
-      create,
-      save,
-      renew,
-      cancel,
-      delete: remove,
-      refresh: () => refreshCanvases(queryClient, workspaceId),
-      select: (id) => selection.selectDirect(workspaceId, id),
-    }),
+    createCanvasEditor(
+      workspaceId,
+      {
+        begin,
+        create,
+        save,
+        renew,
+        cancel,
+        delete: remove,
+        refresh: () => refreshCanvases(queryClient, workspaceId),
+        select: (id) => selection.selectDirect(workspaceId, id),
+      },
+      translatedEditorText(currentText),
+    ),
   );
   const state = useSyncExternalStore(editor.subscribe, editor.getSnapshot);
   useEffect(
@@ -100,19 +165,20 @@ export function CanvasEditForm({
   const d = state.draft!;
   const colors = theme.colors;
   const toast = useToast();
+  const { t } = useText();
   const preview = getClientHost().useRpc(previewCanvasDraft);
   const previewRpc = useRef(preview);
   previewRpc.current = preview;
   const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [rendered, setRendered] = useState<Document | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const request = useRef(0);
   useEffect(() => {
     const current = ++request.current;
     if (mode !== "preview") return;
     setLoading(true);
-    setPreviewError(null);
+    setPreviewFailed(false);
     setRendered(null);
     void previewRpc
       .current({ content: d.content })
@@ -121,7 +187,7 @@ export function CanvasEditForm({
       })
       .catch(() => {
         if (request.current === current)
-          setPreviewError("Unable to preview this draft");
+          setPreviewFailed(true);
       })
       .finally(() => {
         if (request.current === current) setLoading(false);
@@ -159,12 +225,12 @@ export function CanvasEditForm({
           accessibilityRole="header"
           style={{ ...titleText, color: colors.foreground }}
         >
-          {d.original ? "Edit canvas" : "New canvas"}
+          {d.original ? t("editing.heading.edit") : t("editing.heading.new")}
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           <ToolbarButton
             icon="Save"
-            label={state.busy ? "Working…" : "Save"}
+            label={state.busy ? t("editing.working") : t("editing.save")}
             disabled={
               state.busy ||
               d.lost ||
@@ -177,27 +243,31 @@ export function CanvasEditForm({
           />
           <ToolbarButton
             icon="X"
-            label="Cancel"
+            label={t("editing.cancel")}
             disabled={state.busy}
             onPress={() => editor.cancel()}
           />
           <ToolbarButton
             icon={mode === "edit" ? "Eye" : "Code"}
-            label={mode === "edit" ? "Preview" : "Markdown"}
+            label={
+              mode === "edit" ? t("editing.preview") : t("editing.markdown")
+            }
             onPress={() => setMode(mode === "edit" ? "preview" : "edit")}
           />
         </View>
         {d.original && (
           <Text style={{ ...metaText, color: colors.foregroundMuted }}>
             {d.lost
-              ? "Edit lock unavailable"
-              : `Editing revision ${d.original.revision}`}
+              ? t("editing.lockUnavailable")
+              : t("editing.editingRevision", {
+                  revision: d.original.revision,
+                })}
           </Text>
         )}
         {d.lost && !d.uncertain && (
           <ToolbarButton
             icon="LockKeyhole"
-            label="Reacquire lock"
+            label={t("editing.reacquire")}
             disabled={state.busy}
             onPress={() => void editor.reacquire()}
           />
@@ -205,7 +275,7 @@ export function CanvasEditForm({
         {d.uncertain && (
           <ToolbarButton
             icon="RefreshCw"
-            label="Check latest canvases"
+            label={t("editing.checkLatest")}
             disabled={state.busy}
             onPress={() => void editor.refresh()}
           />
@@ -216,9 +286,11 @@ export function CanvasEditForm({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 16, gap: 12, flexGrow: 1 }}
       >
-        <Text style={{ ...metaText, color: colors.foreground }}>Title</Text>
+        <Text style={{ ...metaText, color: colors.foreground }}>
+          {t("editing.titleLabel")}
+        </Text>
         <TextInput
-          accessibilityLabel="Canvas title"
+          accessibilityLabel={t("editing.titleInput")}
           value={d.title}
           editable={!state.busy}
           onChangeText={(title) => editor.change({ title })}
@@ -229,16 +301,16 @@ export function CanvasEditForm({
             accessibilityRole="alert"
             style={{ color: colors.statusDanger }}
           >
-            Title must be at most 240 characters.
+            {t("editing.titleTooLong")}
           </Text>
         )}
         {mode === "edit" ? (
           <>
             <Text style={{ ...metaText, color: colors.foreground }}>
-              Markdown content
+              {t("editing.contentLabel")}
             </Text>
             <TextInput
-              accessibilityLabel="Canvas Markdown content"
+              accessibilityLabel={t("editing.contentInput")}
               multiline
               textAlignVertical="top"
               value={d.content}
@@ -256,7 +328,7 @@ export function CanvasEditForm({
                 accessibilityRole="alert"
                 style={{ color: colors.statusDanger }}
               >
-                Content must be at most 1,000,000 characters.
+                {t("editing.contentTooLong")}
               </Text>
             )}
           </>
@@ -264,15 +336,15 @@ export function CanvasEditForm({
           <>
             {loading && (
               <Text style={{ color: colors.foregroundMuted }}>
-                Loading preview…
+                {t("editing.loadingPreview")}
               </Text>
             )}
-            {previewError && (
+            {previewFailed && (
               <Text
                 accessibilityRole="alert"
                 style={{ color: colors.statusDanger }}
               >
-                {previewError}
+                {t("editing.previewFailed")}
               </Text>
             )}
             {rendered && (
@@ -300,9 +372,14 @@ export function EditConfirmation({
   theme: PluginTheme;
 }) {
   const deleting = state.confirmation === "delete";
+  const { t } = useText();
   return (
     <Modal
-      title={deleting ? "Delete canvas?" : "Discard changes?"}
+      title={
+        deleting
+          ? t("editing.confirm.deleteTitle")
+          : t("editing.confirm.discardTitle")
+      }
       open={state.confirmation !== null}
       onOpenChange={(open) => {
         if (!open && !state.busy) editor.dismissConfirmation();
@@ -312,8 +389,10 @@ export function EditConfirmation({
         <View style={{ gap: 16, padding: 16 }}>
           <Text style={{ color: theme.colors.foreground }}>
             {deleting
-              ? `Permanently delete “${editor.deletionTitle()}” and all its reviews? This cannot be undone.`
-              : "Your unsaved changes will be discarded and the edit lock will be released."}
+              ? t("editing.confirm.deleteBody", {
+                  title: editor.deletionTitle(),
+                })
+              : t("editing.confirm.discardBody")}
           </Text>
           {state.error && (
             <Text
@@ -326,13 +405,21 @@ export function EditConfirmation({
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
             <ToolbarButton
               icon="X"
-              label={deleting ? "Cancel" : "Keep editing"}
+              label={
+                deleting
+                  ? t("editing.confirm.cancel")
+                  : t("editing.confirm.keepEditing")
+              }
               disabled={state.busy}
               onPress={() => editor.dismissConfirmation()}
             />
             <ToolbarButton
               icon={deleting ? "Trash2" : "Undo2"}
-              label={deleting ? "Delete permanently" : "Discard changes"}
+              label={
+                deleting
+                  ? t("editing.confirm.deletePermanently")
+                  : t("editing.confirm.discard")
+              }
               disabled={state.busy}
               onPress={() => {
                 void (deleting

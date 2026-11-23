@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineContract } from "paseo-plugin-helper/shared";
+import { defineRpc } from "@getpaseo/plugin";
 import { idSchema } from "./contracts";
 import { documentSchema } from "./document";
 
@@ -190,12 +190,12 @@ export const reviewMutationSchema = z.discriminatedUnion("action", [
     })
     .strict(),
 ]);
-export const getReviews = defineContract({
+export const getReviews = defineRpc({
   name: "canvas.review.get",
   input: scope,
   output: reviewResultSchema,
 });
-export const mutateReview = defineContract({
+export const mutateReview = defineRpc({
   name: "canvas.review.mutate",
   input: scope.extend({ mutation: reviewMutationSchema }),
   output: reviewResultSchema,
@@ -206,12 +206,12 @@ export const recipientSchema = z.object({
   running: z.boolean(),
   blocked: z.boolean(),
 });
-export const getReviewRecipients = defineContract({
+export const getReviewRecipients = defineRpc({
   name: "canvas.review.recipients",
   input: z.object({ workspaceId: idSchema }),
   output: z.array(recipientSchema),
 });
-export const sendReview = defineContract({
+export const sendReview = defineRpc({
   name: "canvas.review.send",
   input: scope.extend({
     agentId: idSchema,
@@ -220,7 +220,7 @@ export const sendReview = defineContract({
   }),
   output: deliverySchema,
 });
-export const retryReview = defineContract({
+export const retryReview = defineRpc({
   name: "canvas.review.retry",
   input: scope.extend({ requestId: idSchema, allowInterrupt: z.boolean() }),
   output: deliverySchema,

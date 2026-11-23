@@ -6,6 +6,8 @@ date: 2026-09-11
 links:
 - target: 2
   kind: relatesto
+- target: 18
+  kind: amendedby
 ---
 
 # Register Canvas MCP through released Paseo creation hooks

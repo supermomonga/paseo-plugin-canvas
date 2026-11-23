@@ -60,7 +60,7 @@ import type {
   ModalProps,
   ModalContentProps,
   ToastApi,
-} from "@getpaseo/plugin/client/react-native";
+} from "@getpaseo/plugin/client/ui";
 import type { PluginIconProps } from "@getpaseo/plugin/client";
 export { ScrollView, TextInput } from "react-native";
 const icons = {
@@ -110,7 +110,11 @@ const icons = {
   Moon,
   X,
 };
-export function Icon({ name, size, color }: PluginIconProps) {
+export function Icon({
+  name,
+  size,
+  color,
+}: Partial<PluginIconProps> & { name?: string }) {
   const Component = icons[name as keyof typeof icons];
   if (!Component) throw new Error(`Missing fixture icon: ${name}`);
   return <Component size={size} color={color} />;
@@ -291,5 +295,18 @@ export function SettingsSelect({
           </Pressable>
         ))}
     </View>
+  );
+}
+
+/** Paseo renders Markdown (and Mermaid) itself; the fixture shows the source. */
+export function Markdown({ children }: { children: string }) {
+  const { colors } = usePluginTheme();
+  return (
+    <Text
+      testID="host-markdown"
+      style={{ color: colors.foregroundMuted, fontFamily: "monospace" }}
+    >
+      {`Paseo Markdown renderer (fixture)\n${children}`}
+    </Text>
   );
 }

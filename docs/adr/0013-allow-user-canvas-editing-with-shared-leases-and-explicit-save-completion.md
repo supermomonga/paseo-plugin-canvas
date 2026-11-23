@@ -6,6 +6,8 @@ date: 2026-09-15
 links:
 - target: 2
   kind: amends
+- target: 18
+  kind: amendedby
 ---
 
 # Allow user canvas editing with shared leases and explicit save completion

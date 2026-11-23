@@ -3,6 +3,7 @@ import { Modal, SafeAreaView, Text, View } from "react-native";
 import { Button } from "paseo-plugin-helper/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { Size } from "../../shared/mermaid/viewport";
+import { useText } from "../i18n";
 
 /** SDK Modal fixes the desktop width; this viewer needs the entire window. */
 export function MermaidPopup({
@@ -17,6 +18,7 @@ export function MermaidPopup({
   children: (size: Size) => ReactNode;
 }) {
   const [size, setSize] = useState<Size | null>(null);
+  const { t } = useText();
   return (
     <Modal
       visible
@@ -72,7 +74,12 @@ export function MermaidPopup({
             >
               {title}
             </Text>
-            <Button label="Close" icon="X" size="sm" onPress={onClose} />
+            <Button
+              label={t("common.close")}
+              icon="X"
+              size="sm"
+              onPress={onClose}
+            />
           </View>
           <View
             testID="mermaid-popup-body"

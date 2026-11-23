@@ -12,6 +12,8 @@ links:
   kind: amendedby
 - target: 16
   kind: amendedby
+- target: 18
+  kind: amendedby
 ---
 
 # Render diagrams and mathematics without Chromium or WebView

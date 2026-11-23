@@ -51,7 +51,8 @@ export async function startMcp(
           title: value.snapshot.metadata.title,
           revision: value.revision,
           action,
-          warningCount: diagnosis?.diagnosticCount ?? 0,
+          // Every diagram displays since ADR 18; the version 1 row keeps the field.
+          warningCount: 0,
           savedAt: value.snapshot.metadata.updatedAt,
         });
       else timeline = "disabled";
@@ -119,7 +120,7 @@ export async function startMcp(
       { name: "paseo-canvas", version: "0.1.0" },
       {
         instructions:
-          "Shared GFM documents in your Paseo workspace. Use canvas.list/get to read. Before update/delete acquire a lock, use its lockToken and the current expectedRevision. Locks last five minutes; renew before expiry and release after editing. On conflict, read again. Canvas files are outside the project. Never write them directly. Create/update return rendering diagnostics with document line numbers and repair hints. Fix unsupported Mermaid using canvas.update and the returned revision. SVG in ```svg fences or workspace .svg images is shown as a static picture with a transparent background; scripts, animation and referenced external files are ignored. saved:true means the write succeeded even when warnings are present; do not repeat canvas.create. Unless the user turned timeline notifications off, a dedicated timeline row lets users open the canvas inside Paseo.",
+          "Shared GFM documents in your Paseo workspace. Use canvas.list/get to read. Before update/delete acquire a lock, use its lockToken and the current expectedRevision. Locks last five minutes; renew before expiry and release after editing. On conflict, read again. Canvas files are outside the project. Never write them directly. Create/update return rendering diagnostics with document line numbers. Mermaid diagrams outside Canvas's interactive subset are shown with Paseo's standard Mermaid renderer, which Canvas cannot validate; check their syntax yourself. SVG in ```svg fences or workspace .svg images is shown as a static picture with a transparent background; scripts, animation and referenced external files are ignored. saved:true means the write succeeded even when warnings are present; do not repeat canvas.create. Unless the user turned timeline notifications off, a dedicated timeline row lets users open the canvas inside Paseo.",
       },
     );
     const transport = new StreamableHTTPServerTransport({
@@ -332,10 +333,32 @@ export async function startMcp(
       active.delete(server);
     }
   });
-  await new Promise<void>((resolve, reject) => {
-    http.once("error", reject);
-    http.listen(sessions.port, "127.0.0.1", resolve);
-  });
+  const listen = (port: number) =>
+    new Promise<void>((resolve, reject) => {
+      const failed = (error: Error) => {
+        http.off("listening", listening);
+        reject(error);
+      };
+      const listening = () => {
+        http.off("error", failed);
+        resolve();
+      };
+      http.once("error", failed);
+      http.once("listening", listening);
+      http.listen(port, "127.0.0.1");
+    });
+  try {
+    await listen(sessions.port);
+  } catch (error) {
+    // Launch descriptors are rebuilt on every opening, so another port only
+    // affects agents still running with the old address (ADR 18).
+    if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE" || !sessions.port)
+      throw error;
+    console.warn(
+      `[paseo-canvas] Port ${sessions.port} is in use; Canvas MCP moves to another port`,
+    );
+    await listen(0);
+  }
   try {
     await sessions.setPort((http.address() as AddressInfo).port);
   } catch (error) {

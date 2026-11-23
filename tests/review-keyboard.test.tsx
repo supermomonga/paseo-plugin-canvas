@@ -22,11 +22,11 @@ vi.mock("react-native", () => ({
     },
   },
 }));
-vi.mock("@getpaseo/plugin/client/react-native", () => ({
+vi.mock("@getpaseo/plugin/client/ui", () => ({
   TextInput: "TextInput",
   ScrollView: "ScrollView",
 }));
-import { ScrollView } from "@getpaseo/plugin/client/react-native";
+import { ScrollView } from "@getpaseo/plugin/client/ui";
 import {
   ReviewKeyboard,
   ReviewEntry,
