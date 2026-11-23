@@ -148,7 +148,7 @@ Canvases and reviews are stored on the **machine running the Paseo daemon**, out
 | Linux | `$XDG_DATA_HOME/paseo-canvas` when set to an absolute path; otherwise `~/.local/share/paseo-canvas` |
 | Windows | `%LOCALAPPDATA%\paseo-canvas` |
 
-Data is separated by Paseo home and workspace. Saved documents survive restarts and workspace archival. Back up this storage directory to preserve your canvases and reviews. Moving `PASEO_HOME` also requires moving its associated Canvas data and connection state. Network shares and editing stored files externally while the plugin runs are unsupported.
+Data is separated by Paseo home and workspace. Saved documents survive restarts and workspace archival. On Windows, the plugin cannot force folder changes to disk, so a save made just before a power loss or OS crash can revert to its previous version. Back up this storage directory to preserve your canvases and reviews. Moving `PASEO_HOME` also requires moving its associated Canvas data and connection state. Network shares and editing stored files externally while the plugin runs are unsupported.
 
 ## Troubleshooting
 
@@ -165,7 +165,7 @@ Data is separated by Paseo home and workspace. Saved documents survive restarts 
 | A timeline notification is missing | Check that **Canvas notifications** is on in the [settings](#settings), and keep a Paseo client active for delivery. Paseo does not retain delivered plugin rows across daemon restarts; open the document from Canvas instead. |
 
 > [!NOTE]
-> Physical iOS/Android keyboard and gesture behavior, Claude/OpenCode connections, and Linux/Windows storage durability remain unverified. Windows environments without directory synchronization support cannot use this storage implementation.
+> Physical iOS/Android keyboard and gesture behavior, Claude/OpenCode connections, and Linux/Windows storage durability remain unverified.
 
 ## Acknowledgments
 

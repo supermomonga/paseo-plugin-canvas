@@ -22,6 +22,7 @@ import {
   type PublicLock,
 } from "../shared/contracts";
 import { CanvasChanges } from "./changes";
+import { syncDirectory } from "./durability";
 import { CanvasError, isMissing } from "./errors";
 import { decodeDocument, encodeDocument } from "./format";
 import { ReviewStore } from "./reviews";
@@ -224,20 +225,12 @@ export class CanvasStore {
     }
     return { status: "locked", lock: { ...lock.info } };
   }
-  private async syncDirectory(directory: string) {
-    const handle = await open(directory, "r");
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-  }
   private async write(key: string, metadata: Metadata, content: string) {
     const file = this.filename(key),
       directory = path.dirname(file);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await this.workspaceDirectory(metadata.workspaceId);
-    await this.syncDirectory(this.directory);
+    await syncDirectory(this.directory);
     const temporary = path.join(
       directory,
       `.${metadata.canvasId}.${randomUUID()}.tmp`,
@@ -251,7 +244,7 @@ export class CanvasStore {
       this.assertOpen();
       await rename(temporary, file);
       committed = true;
-      await this.syncDirectory(directory);
+      await syncDirectory(directory);
     } catch (error) {
       // A directory-sync failure after rename leaves the commit outcome uncertain.
       // Stop writes rather than returning a success or reusing an uncertain revision.
@@ -519,7 +512,7 @@ export class CanvasStore {
   private async remove(key: string, workspaceId: string, canvasId: string) {
     await unlink(this.filename(key));
     try {
-      await this.syncDirectory(path.dirname(this.filename(key)));
+      await syncDirectory(path.dirname(this.filename(key)));
     } catch (error) {
       this.stop(new Error("Canvas deletion durability could not be confirmed"));
       throw error;
