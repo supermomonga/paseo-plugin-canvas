@@ -13,6 +13,7 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { canvasActivitySchema, type CanvasActivity } from "../shared/activity";
 import { idSchema } from "../shared/contracts";
 import { CanvasChanges } from "./changes";
+import { syncDirectory } from "./durability";
 import { isMissing } from "./errors";
 
 const entrySchema = z.object({
@@ -67,12 +68,7 @@ export class CanvasActivityQueue {
   static async open(root: string) {
     const queue = new CanvasActivityQueue(path.join(root, "activity"));
     await mkdir(queue.directory, { recursive: true, mode: 0o700 });
-    const directory = await open(root, "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
+    await syncDirectory(root);
     for (const filename of (await readdir(queue.directory)).sort()) {
       if (!filename.endsWith(".json")) continue;
       const entry = entrySchema.parse(
@@ -98,15 +94,6 @@ export class CanvasActivityQueue {
     return `${activity.canvasId}-${activity.revision}`;
   }
 
-  private async syncDirectory() {
-    const file = await open(this.directory, "r");
-    try {
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-  }
-
   async enqueue(agentId: string, activity: CanvasActivity) {
     const entry = entrySchema.parse({ agentId, activity });
     const key = this.key(activity);
@@ -120,7 +107,7 @@ export class CanvasActivityQueue {
         await file.close();
       }
       await rename(temporary, path.join(this.directory, `${key}.json`));
-      await this.syncDirectory();
+      await syncDirectory(this.directory);
     } finally {
       await unlink(temporary).catch((error) => {
         if (!isMissing(error)) throw error;
@@ -154,7 +141,7 @@ export class CanvasActivityQueue {
               if (!isMissing(error)) throw error;
             },
           );
-          await this.syncDirectory();
+          await syncDirectory(this.directory);
           this.pending.delete(key);
         } catch (error) {
           // Keep failed notifications for retry without starving other agents.

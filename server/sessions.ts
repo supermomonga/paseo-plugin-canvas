@@ -3,6 +3,7 @@ import { lstat, readFile, open, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { idSchema, type Actor } from "../shared/contracts";
+import { syncDirectory } from "./durability";
 import { CanvasError, isMissing } from "./errors";
 import type { CanvasStore } from "./store";
 
@@ -220,12 +221,7 @@ export class Sessions {
       this.assertOpen();
       await rename(temporary, path.join(this.store.directory, "mcp.json"));
       renamed = true;
-      const directory = await open(this.store.directory, "r");
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
-      }
+      await syncDirectory(this.store.directory);
     } finally {
       await file.close();
       if (!renamed)

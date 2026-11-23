@@ -28,6 +28,7 @@ import {
   type ReviewMutation,
 } from "../shared/review";
 import type { CanvasStore } from "./store";
+import { syncDirectory } from "./durability";
 import { CanvasError, isMissing } from "./errors";
 import { parseDocument } from "./document";
 import { trackAnchor } from "./review-tracking";
@@ -82,13 +83,8 @@ export class ReviewStore {
         corrupt("Review directory must be a real directory");
     }
   }
-  private async sync(dir: string) {
-    const handle = await open(dir, "r");
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+  private sync(dir: string) {
+    return syncDirectory(dir);
   }
   private async read(file: string, limit = 32 * 1024 * 1024) {
     const stat = await lstat(file);
