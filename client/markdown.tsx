@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Text, View, type TextStyle } from "react-native";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Button, CodeBlock } from "paseo-plugin-helper/client";
 import type { Root, Element, ElementContent, RootContent } from "hast";
@@ -8,6 +8,7 @@ import { textContent, externalLink, type AlertType } from "../shared/document";
 import { DocumentImage, Graphic } from "./media";
 import { Mermaid } from "./mermaid/viewer";
 import { useLinkOpener } from "./links";
+import { useText } from "./i18n";
 import {
   type ReviewBindings,
   sourceRange,
@@ -23,15 +24,15 @@ const element = (node: RootContent): node is Element => node.type === "element";
 const classes = (node: Element) =>
   (node.properties.className as string[] | undefined) ?? [];
 const alertStyle = {
-  NOTE: { label: "Note", icon: "Info", color: "foreground" },
-  TIP: { label: "Tip", icon: "Lightbulb", color: "statusSuccess" },
+  NOTE: { label: "note", icon: "Info", color: "foreground" },
+  TIP: { label: "tip", icon: "Lightbulb", color: "statusSuccess" },
   IMPORTANT: {
-    label: "Important",
+    label: "important",
     icon: "MessageSquareWarning",
     color: "foreground",
   },
-  WARNING: { label: "Warning", icon: "TriangleAlert", color: "statusWarning" },
-  CAUTION: { label: "Caution", icon: "OctagonAlert", color: "statusDanger" },
+  WARNING: { label: "warning", icon: "TriangleAlert", color: "statusWarning" },
+  CAUTION: { label: "caution", icon: "OctagonAlert", color: "statusDanger" },
 } as const;
 export function Markdown({
   document: tree,
@@ -51,6 +52,7 @@ export function Markdown({
   onNavigate?: (offset: number) => void;
 }) {
   const root = useRef<View>(null);
+  const { t } = useText();
   const openExternal = useLinkOpener();
   const anchors = useRef(new Map<string, View | Text>());
   const [width, setWidth] = useState(600);
@@ -103,7 +105,7 @@ export function Markdown({
         onNavigate?.(y);
         setPending(undefined);
       },
-      () => onError("Unable to locate the link target"),
+      () => onError(t("content.links.notLocated")),
     );
   }
   useEffect(() => {
@@ -118,7 +120,7 @@ export function Markdown({
       try {
         id = decodeURIComponent(href.slice(1));
       } catch {
-        onError("Invalid link format");
+        onError(t("content.links.invalid"));
         return;
       }
       const parents: Element[] = [];
@@ -140,7 +142,7 @@ export function Markdown({
         return false;
       }
       if (!find(tree.children, [])) {
-        onError("The linked heading or footnote was not found");
+        onError(t("content.links.notFound"));
         return;
       }
       setExpanded(
@@ -155,7 +157,7 @@ export function Markdown({
       const url = externalLink(href);
       if (url)
         void openExternal(url).catch(() =>
-          onError("Unable to open the link"),
+          onError(t("content.links.openFailed")),
         );
     }
   }
@@ -471,10 +473,13 @@ export function Markdown({
         const alert = alertStyle[type];
         if (!alert) return null;
         const color = colors[alert.color];
+        const alertLabel = t(`content.alerts.${alert.label}`);
         return (
           <View
             key={key}
-            accessibilityLabel={`${alert.label} alert`}
+            accessibilityLabel={t("content.alerts.label", {
+              type: alertLabel,
+            })}
             style={{
               borderLeftWidth: 3,
               borderColor: color,
@@ -492,7 +497,7 @@ export function Markdown({
             >
               <Icon name={alert.icon} size={16} color={color} />
               <Text style={{ ...textStyle, color, fontWeight: "600" }}>
-                {alert.label}
+                {alertLabel}
               </Text>
             </View>
             {flow(node.children, key)}
@@ -556,8 +561,8 @@ export function Markdown({
                     accessibilityLabel={
                       checkbox
                         ? checkbox.properties.checked
-                          ? "Complete"
-                          : "Incomplete"
+                          ? t("content.task.complete")
+                          : t("content.task.incomplete")
                         : undefined
                     }
                     style={{
@@ -628,9 +633,18 @@ export function Markdown({
               variant="secondary"
               size="sm"
               style={{ justifyContent: "flex-start" }}
-              label={summary ? textContent(summary) : "Details"}
+              label={
+                summary ? textContent(summary) : t("content.details.label")
+              }
               icon={open ? "ChevronDown" : "ChevronRight"}
-              accessibilityLabel={`${open ? "Collapse" : "Expand"} ${summary ? textContent(summary) : "details"}`}
+              accessibilityLabel={t(
+                open ? "content.details.collapse" : "content.details.expand",
+                {
+                  name: summary
+                    ? textContent(summary)
+                    : t("content.details.name"),
+                },
+              )}
               onPress={() =>
                 setExpanded((previous) => {
                   const next = new Map(previous);

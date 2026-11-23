@@ -10,23 +10,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CanvasStore } from "../server/store";
-import { Modal as SdkModal } from "@getpaseo/plugin/client/react-native";
+import { Modal as SdkModal } from "@getpaseo/plugin/client/ui";
 import { Linking } from "react-native";
-vi.mock("@getpaseo/plugin/client/ui", () => {
-  const host = (name: string) => (props: object) =>
-    React.createElement(name, props);
-  return Object.fromEntries(
-    [
-      "SettingsSelect",
-      "SettingsSwitch",
-      "SettingsSection",
-      "SettingsCard",
-      "SettingsAction",
-      "ExternalLink",
-      "SidebarRow",
-    ].map((name) => [name, host(name)]),
-  );
-});
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
   useQueryClient: () => ({ setQueryData: () => {} }),
@@ -43,20 +28,33 @@ const lifecycle = vi.hoisted(() => ({
 const sdk = vi.hoisted(() => ({
   settings: {} as Record<string, unknown>,
   save: vi.fn(async (_values: unknown, _revision: string) => true),
+  device: {} as Record<string, unknown>,
+  saveDevice: vi.fn(async (_values: unknown, _revision: string) => true),
   openExternalUrl: vi.fn(async (_url: string) => {}),
   hosts: [] as { serverId: string; label: string; status: string }[],
   workspace: null as { name: string; title: string | null } | null,
 }));
-vi.mock("@getpaseo/plugin/client", () => ({
+vi.mock("@getpaseo/plugin/client", async () => ({
+  ...(await import("./support/i18n")).translationMocks,
+  useTabState: (
+    tab: { state: unknown; setState: (value: unknown) => void },
+    schema: { safeParse: (value: unknown) => { success: boolean; data?: unknown } },
+    fallback: unknown,
+  ) => {
+    const parsed = schema.safeParse(tab.state);
+    return [parsed.success ? parsed.data : fallback, tab.setState];
+  },
+  useSubscription: () => ({ status: "live" }),
   useRpc: (contract: { name: string }) => async (input: unknown) =>
     reviewCalls(contract.name, input),
-  useSettings: () => ({
+  // Host and device documents are stored separately (ADR 18).
+  useSettings: (definition: { scope: string }) => ({
     status: "ready",
-    values: sdk.settings,
-    revision: "revision-1",
+    values: definition.scope === "device" ? sdk.device : sdk.settings,
+    revision: definition.scope === "device" ? "device-1" : "revision-1",
     saving: false,
     saveError: null,
-    save: sdk.save,
+    save: definition.scope === "device" ? sdk.saveDevice : sdk.save,
     reset: async () => true,
     reload: async () => {},
   }),
@@ -105,19 +103,35 @@ const host = vi.hoisted(() => ({
   show: vi.fn(),
   error: vi.fn(),
 }));
-vi.mock("@getpaseo/plugin/client/react-native", () => ({
-  ScrollView: "ScrollView",
-  FlatList: "FlatList",
-  TextInput: "TextInput",
-  Icon: () => null,
-  Modal: Object.assign(
-    ({ open, children }: { open: boolean; children: React.ReactNode }) =>
-      open ? children : null,
-    { Content: ({ children }: { children: React.ReactNode }) => children },
-  ),
-  copyText: host.copy,
-  useToast: () => ({ show: host.show, error: host.error }),
-}));
+vi.mock("@getpaseo/plugin/client/ui", () => {
+  const element = (name: string) => (props: object) =>
+    React.createElement(name, props);
+  return {
+    ...Object.fromEntries(
+      [
+        "SettingsSelect",
+        "SettingsSwitch",
+        "SettingsSection",
+        "SettingsCard",
+        "SettingsAction",
+        "ExternalLink",
+        "SidebarRow",
+        "Markdown",
+      ].map((name) => [name, element(name)]),
+    ),
+    ScrollView: "ScrollView",
+    FlatList: "FlatList",
+    TextInput: "TextInput",
+    Icon: () => null,
+    Modal: Object.assign(
+      ({ open, children }: { open: boolean; children: React.ReactNode }) =>
+        open ? children : null,
+      { Content: ({ children }: { children: React.ReactNode }) => children },
+    ),
+    copyText: host.copy,
+    useToast: () => ({ show: host.show, error: host.error }),
+  };
+});
 const queries = vi.hoisted(() => ({
   review: undefined as import("../shared/review").ReviewResult | undefined,
   reviewRefetch: vi.fn(),
@@ -201,8 +215,8 @@ import { reviewTargets, sourceRange } from "../shared/review-targets";
 import type { Canvas } from "../shared/contracts";
 import { CanvasPanel } from "../client/panel";
 import contribute from "../index.client";
-import { startActivitySync } from "../client/activity";
-import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { appLocale, resolveText } from "./support/i18n";
+import type { PluginClientContext, PluginTab } from "@getpaseo/plugin/client";
 import type { PluginTheme } from "@getpaseo/plugin";
 const colors = {
   surface0: "#111111",
@@ -269,10 +283,9 @@ const summary = {
 beforeEach(() => {
   vi.clearAllMocks();
   nativePlatform.OS = "web";
-  sdk.settings = {
-    timelineNotifications: true,
-    openLinksIn: "workspace-browser",
-  };
+  sdk.settings = { timelineNotifications: true };
+  sdk.device = { openLinksIn: "workspace-browser" };
+  appLocale.current = "en";
   sdk.hosts = [{ serverId: "host", label: "Host", status: "online" }];
   sdk.workspace = { name: "workspace-a", title: "Workspace A" };
   queries.recent.data = { items: [] };
@@ -291,10 +304,10 @@ beforeEach(() => {
   queries.list.error = queries.detail.error = null;
   queries.list.isFetching = queries.detail.isFetching = false;
 });
-function panel(compact: boolean) {
+function panel(compact: boolean, tab?: PluginTab) {
   return (
     <CanvasPanel
-      context="workspace"
+      tab={tab}
       workspaceId="workspace-a"
       host={{ id: "host", label: "Host" }}
       theme={theme}
@@ -794,13 +807,35 @@ test("Mermaid exposes unsupported sequence blocks instead of showing an incomple
       </PluginThemeProvider>,
     );
   });
-  expect(JSON.stringify(tree.toJSON())).toContain(
-    "Unsupported or unrecognized syntax",
-  );
+  // Paseo's own Mermaid renderer draws what Canvas's subset cannot.
   expect(
     tree.root.findAll((node) => node.props.testID === "mermaid-viewport"),
   ).toHaveLength(0);
+  const markdown = tree.root.findByType("Markdown" as never);
+  expect(markdown.props.children).toBe(
+    "```mermaid\nsequenceDiagram\nA->>B: hello\nloop retry\nend\n```",
+  );
+  expect(JSON.stringify(tree.toJSON())).toContain(
+    "Shown with Paseo's Mermaid renderer",
+  );
+  expect(
+    tree.root.findAll(
+      (node) =>
+        node.props.accessibilityHint?.includes?.(
+          "Unsupported or unrecognized syntax",
+        ) && (node.type as unknown) === "Text",
+    ),
+  ).toHaveLength(1);
+  await act(async () => button(tree, "Show code").props.onPress());
+  expect(JSON.stringify(tree.toJSON())).toContain("Mermaid code");
   await act(async () => tree.unmount());
+});
+
+test("the Mermaid fence outlasts backtick runs inside the diagram", async () => {
+  const { mermaidFence } = await import("../client/mermaid/viewer");
+  expect(mermaidFence("graph TD\nA[\"````\"]-->B")).toBe(
+    "`````mermaid\ngraph TD\nA[\"````\"]-->B\n`````",
+  );
 });
 
 test.each(["web", "ios", "android"] as const)(
@@ -1304,17 +1339,30 @@ test.each([false, true])(
       screens: any[] = [],
       sidebarItems: any[] = [],
       settingsScreens: any[] = [],
-      commands: any[] = [];
+      commands: any[] = [],
+      slashCommands: any[] = [],
+      attachmentSources: any[] = [];
     const removeRenderer = vi.fn(),
       removePanel = vi.fn(),
       removeCommand = vi.fn(),
       removeScreen = vi.fn(),
       removeSidebarItem = vi.fn(),
-      removeSettings = vi.fn();
+      removeSettings = vi.fn(),
+      removeSlashCommand = vi.fn(),
+      removeAttachmentSource = vi.fn();
     const client = {
       rpc: vi.fn(() => new Promise(() => {})),
       openPanel: vi.fn(),
       openScreen: vi.fn(),
+      i18n: { t: () => "No match", locale: "en" },
+      addSlashCommand: (entry: any) => {
+        slashCommands.push(entry);
+        return removeSlashCommand;
+      },
+      addAttachmentSource: (entry: any) => {
+        attachmentSources.push(entry);
+        return removeAttachmentSource;
+      },
       addTimelineRenderer: (entry: any) => {
         renderers.push(entry);
         return removeRenderer;
@@ -1369,6 +1417,7 @@ test.each([false, true])(
         }}
       />
     );
+    const tab = { state: undefined, setState: vi.fn(), setModified: vi.fn() };
     let timeline!: ReactTestRenderer, view!: ReactTestRenderer;
     try {
       await act(async () => {
@@ -1383,7 +1432,7 @@ test.each([false, true])(
       });
       await act(async () => {
         view = create(
-          <Panel {...common} context="workspace" workspaceId="workspace-a" />,
+          <Panel {...common} tab={tab} workspaceId="workspace-a" />,
         );
       });
       expect(queries.inputs).toHaveBeenCalledWith("canvas.get", {
@@ -1428,9 +1477,29 @@ test.each([false, true])(
         cleanup();
       });
     }
-    expect(screens).toMatchObject([{ id: "canvas", title: "Canvas" }]);
-    expect(sidebarItems).toMatchObject([{ id: "canvas", title: "Canvas" }]);
-    expect(settingsScreens).toMatchObject([{ id: "canvas", title: "Canvas" }]);
+    // The selection is kept in the tab, so a reload reopens the same canvas.
+    expect(tab.setState).toHaveBeenCalledWith(
+      expect.objectContaining({ canvasId: "deleted" }),
+    );
+    for (const registered of [screens, sidebarItems, settingsScreens]) {
+      expect(registered).toHaveLength(1);
+      expect(registered[0].id).toBe("canvas");
+      expect(resolveText(registered[0].title)).toBe("Canvas");
+    }
+    expect(resolveText(panels[0].title)).toBe("Canvas");
+    expect(panels[0]).not.toHaveProperty("context");
+    expect(slashCommands).toMatchObject([
+      { name: "canvas", context: "workspace" },
+    ]);
+    expect(attachmentSources).toMatchObject([
+      {
+        id: "canvas",
+        icon: "NotebookPen",
+        search: { name: "canvas.attachments.search" },
+      },
+    ]);
+    expect(removeSlashCommand).toHaveBeenCalledOnce();
+    expect(removeAttachmentSource).toHaveBeenCalledOnce();
     const openSettings = vi.fn();
     commands
       .find((command) => command.id === "canvas-settings")
@@ -1444,51 +1513,6 @@ test.each([false, true])(
     expect(removeSettings).toHaveBeenCalledOnce();
   },
 );
-
-test("activity delivery runs without a panel, pauses in background, retries, and stops on unload", async () => {
-  vi.useFakeTimers();
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  let resolve!: (result: { cursor: string }) => void;
-  const rpc = vi.fn(
-    () =>
-      new Promise<{ cursor: string }>((next) => {
-        resolve = next;
-      }),
-  );
-  const stop = startActivitySync({ rpc } as unknown as PluginClientContext);
-  try {
-    await vi.advanceTimersByTimeAsync(0);
-    expect(rpc).toHaveBeenCalledTimes(1);
-    lifecycle.listener!("background");
-    resolve({ cursor: "first" });
-    await vi.advanceTimersByTimeAsync(100);
-    expect(rpc).toHaveBeenCalledTimes(1);
-    lifecycle.listener!("active");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(rpc).toHaveBeenCalledTimes(2);
-    expect(rpc.mock.calls[1]).toEqual([
-      expect.objectContaining({ name: "canvas.sync_activity" }),
-      { cursor: "first" },
-    ]);
-    rpc.mockRejectedValueOnce(new Error("offline"));
-    resolve({ cursor: "second" });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(rpc).toHaveBeenCalledTimes(3);
-    await vi.advanceTimersByTimeAsync(999);
-    expect(rpc).toHaveBeenCalledTimes(3);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(rpc).toHaveBeenCalledTimes(4);
-    stop();
-    resolve({ cursor: "third" });
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(rpc).toHaveBeenCalledTimes(4);
-    expect(lifecycle.remove).toHaveBeenCalledOnce();
-  } finally {
-    stop();
-    vi.useRealTimers();
-    warn.mockRestore();
-  }
-});
 
 function reviewCanvas(content: string): Canvas {
   return {
@@ -2065,7 +2089,7 @@ test("send dialog handles unavailable recipients, interruption consent, errors, 
       view = create(render());
     });
     expect(JSON.stringify(view.toJSON())).toContain(
-      "No sessions with Canvas MCP",
+      "No agent sessions are available in this workspace.",
     );
     expect(button(view, "Send").props.disabled).toBeTruthy();
     queries.recipients.error = new Error("Recipients offline");
@@ -2438,7 +2462,6 @@ test("document links follow the link setting and the client's browser support", 
   const render = (navigation?: object) => (
     <CanvasPanel
       {...hostCommon}
-      context="workspace"
       workspaceId="workspace-a"
       navigation={navigation as never}
     />
@@ -2464,14 +2487,14 @@ test("document links follow the link setting and the client's browser support", 
   expect(Linking.openURL).toHaveBeenCalledWith("mailto:team@example.com");
   expect(sdk.openExternalUrl).not.toHaveBeenCalled();
 
-  sdk.settings = { ...sdk.settings, openLinksIn: "system" };
+  sdk.device = { ...sdk.device, openLinksIn: "system" };
   await act(async () => view.update(render({ openBrowser })));
   await act(async () => link("Docs").props.onPress());
   expect(sdk.openExternalUrl).toHaveBeenCalledWith("https://example.com/docs");
   expect(openBrowser).toHaveBeenCalledOnce();
 
   // Browser web and mobile clients have no workspace browser.
-  sdk.settings = { ...sdk.settings, openLinksIn: "workspace-browser" };
+  sdk.device = { ...sdk.device, openLinksIn: "workspace-browser" };
   await act(async () => view.update(render(undefined)));
   await act(async () => link("Docs").props.onPress());
   expect(sdk.openExternalUrl).toHaveBeenCalledTimes(2);
@@ -2636,19 +2659,203 @@ test("the settings screen saves each preference immediately and links to the doc
   const toggle = view.root.findByType("SettingsSwitch" as never);
   expect(toggle.props.value).toBe(true);
   await act(async () => toggle.props.onValueChange(false));
+  // Notifications belong to the host; the link target to this device.
   expect(sdk.save).toHaveBeenLastCalledWith(
-    { timelineNotifications: false, openLinksIn: "workspace-browser" },
+    { timelineNotifications: false },
     "revision-1",
   );
   const select = view.root.findByType("SettingsSelect" as never);
   expect(select.props.value).toBe("workspace-browser");
   await act(async () => select.props.onValueChange("system"));
-  expect(sdk.save).toHaveBeenLastCalledWith(
-    { timelineNotifications: true, openLinksIn: "system" },
-    "revision-1",
+  expect(sdk.saveDevice).toHaveBeenLastCalledWith(
+    { openLinksIn: "system" },
+    "device-1",
   );
+  expect(sdk.save).toHaveBeenCalledOnce();
+  const text = JSON.stringify(view.toJSON());
+  expect(text).toContain("Applies to every client of this host.");
+  expect(text).toContain("Applies only to this device.");
   expect(view.root.findByType("ExternalLink" as never).props.href).toBe(
     "https://github.com/supermomonga/paseo-plugin-canvas#readme",
   );
   await act(async () => view.unmount());
+});
+
+test("the panel restores its tab's canvas and list layout, and marks the tab modified while a draft differs", async () => {
+  const tab = {
+    state: { canvasId: "canvas-b", listOpen: false, listSide: "right" },
+    setState: vi.fn(),
+    setModified: vi.fn(),
+  };
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(panel(false, tab));
+  });
+  expect(queries.inputs).toHaveBeenCalledWith("canvas.get", {
+    workspaceId: "workspace-a",
+    canvasId: "canvas-b",
+  });
+  // The restored layout keeps the list closed until the reader opens it.
+  expect(button(view, "New canvas")).toBeUndefined();
+  await act(async () => button(view, "Show canvas list").props.onPress());
+  expect(tab.setState).toHaveBeenLastCalledWith({
+    canvasId: "canvas-b",
+    listOpen: true,
+    listSide: "right",
+  });
+  tab.state = tab.setState.mock.lastCall![0];
+  await act(async () => view.update(panel(false, { ...tab })));
+  expect(tab.setModified).not.toHaveBeenCalledWith(true);
+  await act(async () => button(view, "New canvas").props.onPress());
+  const input = (label: string) =>
+    view.root
+      .findAllByType("TextInput" as never)
+      .find((node) => node.props.accessibilityLabel === label)!;
+  await act(async () => input("Canvas title").props.onChangeText("Draft"));
+  // Paseo asks before closing a tab with unsaved changes.
+  expect(tab.setModified).toHaveBeenLastCalledWith(true);
+  await act(async () => input("Canvas title").props.onChangeText(""));
+  expect(tab.setModified).toHaveBeenLastCalledWith(false);
+  await act(async () => input("Canvas title").props.onChangeText("Draft"));
+  await act(async () => view.unmount());
+  expect(tab.setModified).toHaveBeenLastCalledWith(false);
+});
+
+test("/canvas opens the panel at the best title match and reports a miss", async () => {
+  const { default: contribute } = await import("../index.client");
+  const registered = {
+    slash: [] as any[],
+    panels: [] as any[],
+  };
+  const client = {
+    openPanel: vi.fn(),
+    openScreen: vi.fn(),
+    i18n: {
+      t: (_messages: unknown, key: string, options: { query: string }) =>
+        `${key}:${options.query}`,
+      locale: "en",
+    },
+    addSlashCommand: (entry: any) => (registered.slash.push(entry), () => {}),
+    addWorkspacePanel: (entry: any) => (registered.panels.push(entry), () => {}),
+  } as Record<string, unknown>;
+  for (const name of [
+    "addTimelineRenderer",
+    "addScreen",
+    "addSidebarHeaderItem",
+    "addSettingsScreen",
+    "addCommandCenterItem",
+    "addAttachmentSource",
+  ])
+    client[name] = () => () => {};
+  const cleanup = contribute(client as unknown as PluginClientContext);
+  const [command] = registered.slash;
+  const Panel = registered.panels[0].Component;
+  const items = [
+    { ...summary, canvasId: "older", title: "Plan notes", updatedAt: "2026-09-01T00:00:00Z" },
+    { ...summary, canvasId: "newer", title: "Release plan", updatedAt: "2026-09-02T00:00:00Z" },
+    { ...summary, canvasId: "exact", title: "Plan", updatedAt: "2026-08-01T00:00:00Z" },
+  ];
+  const rpc = vi.fn(async () => ({ items }));
+  const openPanel = vi.fn();
+  const context = (args: string) => ({
+    args,
+    rpc,
+    openPanel,
+    workspace: { id: "workspace-a" },
+  });
+  const tab = { state: undefined, setState: vi.fn(), setModified: vi.fn() };
+  let view!: ReactTestRenderer;
+  try {
+    await act(async () => {
+      view = create(
+        <Panel {...hostCommon} tab={tab} workspaceId="workspace-a" />,
+      );
+    });
+    queries.inputs.mockClear();
+    // An exact title wins over newer partial matches.
+    await act(async () => command.onSubmit(context("  plan ")));
+    expect(openPanel).toHaveBeenCalledWith("canvas");
+    expect(rpc).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "canvas.list" }),
+      { workspaceId: "workspace-a" },
+    );
+    expect(queries.inputs).toHaveBeenCalledWith("canvas.get", {
+      workspaceId: "workspace-a",
+      canvasId: "exact",
+    });
+    await expect(command.onSubmit(context("nothing"))).rejects.toThrow(
+      "plugin.noMatch:nothing",
+    );
+    // Without arguments the command only opens the panel.
+    rpc.mockClear();
+    await command.onSubmit(context(""));
+    expect(rpc).not.toHaveBeenCalled();
+    expect(openPanel).toHaveBeenCalledTimes(3);
+  } finally {
+    await act(async () => {
+      view?.unmount();
+      cleanup();
+    });
+  }
+});
+
+test("findCanvas prefers an exact title, then a prefix, then a contained title, newest first", async () => {
+  const { findCanvas } = await import("../client/commands");
+  const items = [
+    { title: "Roadmap", updatedAt: "2026-09-03T00:00:00Z" },
+    { title: "Ｐｌａｎ　ｒｅｖｉｅｗ", updatedAt: "2026-09-01T00:00:00Z" },
+    { title: "Plan notes", updatedAt: "2026-09-02T00:00:00Z" },
+    { title: "Release plan", updatedAt: "2026-09-04T00:00:00Z" },
+  ];
+  expect(findCanvas(items, "plan")?.title).toBe("Plan notes");
+  // Full-width text and repeated spaces normalize like the typed query.
+  expect(findCanvas(items, "plan  review")?.title).toBe("Ｐｌａｎ　ｒｅｖｉｅｗ");
+  expect(findCanvas(items, "lease")?.title).toBe("Release plan");
+  expect(findCanvas(items, "roadmap")?.title).toBe("Roadmap");
+  expect(findCanvas(items, "missing")).toBeNull();
+  expect(findCanvas(items, "   ")).toBeNull();
+});
+
+test("interface text follows the app language, with English for missing keys", async () => {
+  appLocale.current = "ja";
+  let view!: ReactTestRenderer;
+  await act(async () => {
+    view = create(panel(false));
+  });
+  const text = JSON.stringify(view.toJSON());
+  expect(text).toContain("2 件");
+  expect(button(view, "新しい Canvas")).toBeDefined();
+  expect(button(view, "詳細")).toBeDefined();
+  await act(async () => view.unmount());
+  const { CanvasActivityRow } = await import("../client/activity");
+  let row!: ReactTestRenderer;
+  await act(async () => {
+    row = create(
+      <CanvasActivityRow
+        {...hostCommon}
+        agentId="agent-a"
+        timestamp={new Date()}
+        item={{
+          type: "plugin",
+          kind: "canvas-activity",
+          version: 1,
+          data: {
+            workspaceId: "workspace-a",
+            canvasId: "canvas-a",
+            title: "実装プラン",
+            revision: 2,
+            action: "updated",
+            warningCount: 0,
+            savedAt: "2026-09-12T00:00:00Z",
+          },
+        }}
+        onOpen={() => {}}
+      />,
+    );
+  });
+  expect(JSON.stringify(row.toJSON())).toContain(
+    "Canvas を更新 · リビジョン 2",
+  );
+  expect(button(row, "Canvas を開く: 実装プラン")).toBeDefined();
+  await act(async () => row.unmount());
 });

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { defineContract } from "paseo-plugin-helper/shared";
 import { idSchema, titleSchema } from "./contracts";
 
 export const canvasActivitySchema = z.object({
@@ -12,8 +11,3 @@ export const canvasActivitySchema = z.object({
   savedAt: z.iso.datetime(),
 });
 export type CanvasActivity = z.infer<typeof canvasActivitySchema>;
-export const syncCanvasActivity = defineContract({
-  name: "canvas.sync_activity",
-  input: z.object({ cursor: z.string().max(100).nullable() }),
-  output: z.object({ cursor: z.string() }),
-});

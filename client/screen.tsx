@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import {
   useHosts,
   useWorkspace,
@@ -13,6 +13,7 @@ import { idSchema } from "../shared/contracts";
 import { CanvasPanel } from "./panel";
 import { createCanvasSelection } from "./selection";
 import { ToolbarButton, metaText } from "./controls";
+import { useText } from "./i18n";
 
 export const CANVAS_SCREEN = "canvas";
 
@@ -29,13 +30,14 @@ const validId = (value: string | undefined) =>
 
 /** Connection notice for a host that cannot serve Canvas RPCs right now. */
 export function useHostNotice(host: PluginHostProps["host"]) {
+  const { t } = useText();
   const status = useHosts().find(
     (entry) => entry.serverId === host.id,
   )?.status;
   if (!status || status === "online") return null;
   return status === "idle" || status === "connecting"
-    ? `Connecting to ${host.label}…`
-    : `${host.label} is offline. Canvas changes appear after it reconnects.`;
+    ? t("host.connecting", { host: host.label })
+    : t("host.offline", { host: host.label });
 }
 
 export function CanvasScreen({
@@ -45,6 +47,7 @@ export function CanvasScreen({
   layout,
   navigation,
 }: PluginScreenProps) {
+  const { t } = useText();
   const workspaceId = validId(params.workspaceId);
   const canvasId = validId(params.canvasId);
   // The screen keeps its own selection and editor, separate from the
@@ -65,8 +68,8 @@ export function CanvasScreen({
         <View style={{ flex: 1, backgroundColor: theme.colors.surface0 }}>
           <EmptyState
             icon={null}
-            title="No workspace selected"
-            description="Open a canvas from the sidebar or from a workspace's Canvas panel"
+            title={t("screen.noWorkspace")}
+            description={t("screen.noWorkspaceHint")}
             style={{ flex: 1, padding: 16 }}
           />
         </View>
@@ -79,11 +82,10 @@ export function CanvasScreen({
           workspaceId={workspaceId}
           theme={theme}
           host={host}
-          openWorkspace={navigation?.openWorkspace}
+          navigation={navigation}
         />
       </PluginThemeProvider>
       <CanvasPanel
-        context="workspace"
         workspaceId={workspaceId}
         theme={theme}
         host={host}
@@ -99,14 +101,13 @@ function WorkspaceBar({
   workspaceId,
   theme,
   host,
-  openWorkspace,
-}: Pick<PluginScreenProps, "theme" | "host"> & {
+  navigation,
+}: Pick<PluginScreenProps, "theme" | "host" | "navigation"> & {
   workspaceId: string;
-  openWorkspace:
-    | NonNullable<PluginScreenProps["navigation"]>["openWorkspace"]
-    | undefined;
 }) {
   const colors = theme.colors;
+  const { t } = useText();
+  const openWorkspace = navigation?.openWorkspace;
   const workspace = useWorkspace(workspaceId, ({ name, title }) => ({
     name,
     title,
@@ -132,7 +133,7 @@ function WorkspaceBar({
         >
           {workspace
             ? workspace.title || workspace.name
-            : "Workspace unavailable"}
+            : t("screen.workspaceUnavailable")}
         </Text>
         {notice && (
           <Text
@@ -146,8 +147,15 @@ function WorkspaceBar({
       {openWorkspace && workspace && (
         <ToolbarButton
           icon="ArrowUpRight"
-          label="Open workspace"
-          onPress={() => openWorkspace({ workspaceId, serverId: host.id })}
+          label={t("screen.openWorkspace")}
+          onPress={() =>
+            openWorkspace({
+              workspaceId,
+              serverId: host.id,
+              // Select the workspace's host in the sidebar when Paseo can.
+              ...(navigation?.supportsFocusHost ? { focusHost: true } : {}),
+            })
+          }
         />
       )}
     </View>

@@ -1,4 +1,4 @@
-import { defineContract } from "paseo-plugin-helper/shared";
+import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import { idSchema } from "./contracts";
 /** Workspace and remote SVG files share the local image size limit. */
@@ -26,12 +26,12 @@ export const imageResultSchema = z.object({
   width: z.number().positive().max(displaySizeLimit),
   height: z.number().positive().max(displaySizeLimit),
 });
-export const renderGraphic = defineContract({
+export const renderGraphic = defineRpc({
   name: "canvas.render_graphic",
   input: graphicInputSchema,
   output: imageResultSchema,
 });
-export const readImage = defineContract({
+export const readImage = defineRpc({
   name: "canvas.read_image",
   input: z.object({ workspaceId: idSchema, src: z.string().min(1).max(4096) }),
   // Rasterized SVGs report their display size; other formats are measured by the client.

@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
+import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { CanvasStore } from "../server/store";
 import { Sessions } from "../server/sessions";
@@ -31,27 +32,32 @@ async function setup() {
   return { directory, store, sessions };
 }
 
-test("persistent endpoint and scoped registrations survive reload; revoked access remains revoked", async () => {
+test("each opening gets a new launch credential; only hashes persist and reload keeps the current one", async () => {
   const { directory, store, sessions } = await setup();
   const mcp = await startMcp(store, sessions, { enqueue: async () => {} });
-  const tokens = await Promise.all(
-    ["a", "b", "c"].map(async (id) => {
-      const token = sessions.register();
-      await sessions.activate(
-        id,
-        id === "c" ? "other-workspace" : "workspace",
-        token,
-      );
-      return token;
-    }),
-  );
-  const actor = sessions.resolve(tokens[0]);
-  await sessions.revoke("b");
-  await sessions.title("a", "Agent A");
+  const first = await sessions.connect("a", "workspace", "Agent A");
+  const other = await sessions.connect("c", "other-workspace", null);
+  expect(first).not.toBeNull();
+  const actor = sessions.resolve(first!.token);
+  expect(actor).toMatchObject({
+    agentId: "a",
+    workspaceId: "workspace",
+    title: "Agent A",
+  });
+  // Reopening rotates the credential and starts a new edit session.
+  const second = await sessions.connect("a", "workspace", null);
+  expect(second!.token).not.toBe(first!.token);
+  expect(() => sessions.resolve(first!.token)).toThrow(/not active/);
+  const reopened = sessions.resolve(second!.token);
+  expect(reopened.sessionId).not.toBe(actor.sessionId);
+  expect(reopened.title).toBe("Agent A");
+  await sessions.title("a", "Renamed");
   await mcp.close();
   await sessions.close();
   const persisted = await readFile(path.join(directory, "mcp.json"), "utf8");
-  for (const token of tokens) expect(persisted).not.toContain(token);
+  for (const token of [first!.token, second!.token, other!.token])
+    expect(persisted).not.toContain(token);
+  expect(JSON.parse(persisted)).toMatchObject({ version: 2, savedPort: null });
   expect((await stat(path.join(directory, "mcp.json"))).mode & 0o777).toBe(
     0o600,
   );
@@ -59,36 +65,65 @@ test("persistent endpoint and scoped registrations survive reload; revoked acces
   cleanup.push(() => restored.close());
   const next = await startMcp(store, restored, { enqueue: async () => {} });
   cleanup.push(() => next.close());
+  // Running sessions keep their address across a plugin reload.
   expect(next.url).toBe(mcp.url);
-  expect(restored.resolve(tokens[0])).toEqual({ ...actor, title: "Agent A" });
-  expect(() => restored.resolve(tokens[1])).toThrow(/not active/);
-  expect(restored.resolve(tokens[2]).workspaceId).toBe("other-workspace");
-  await restored.activate("a", "workspace");
-  expect(restored.resolve(tokens[0]).sessionId).not.toBe(actor.sessionId);
-  await restored.activate("b", "workspace");
-  expect(restored.resolve(tokens[1]).agentId).toBe("b");
+  expect(restored.resolve(second!.token)).toEqual({
+    ...reopened,
+    title: "Renamed",
+  });
+  expect(restored.resolve(other!.token).workspaceId).toBe("other-workspace");
+  await restored.revoke("a");
+  expect(() => restored.resolve(second!.token)).toThrow(/not active/);
 });
 
-test("unbound credentials, cross-agent rebinding and workspace changes are rejected; old agents remain untouched", async () => {
-  const { sessions } = await setup();
-  await sessions.setPort(12345);
-  const token = sessions.register();
-  expect(() => sessions.resolve(token)).toThrow(/not active/);
-  await sessions.activate("a", "workspace", token);
-  await expect(sessions.activate("b", "workspace", token)).rejects.toThrow(
-    /does not belong/,
+test("descriptors saved by Canvas 0.3 keep working; their agents get no second server", async () => {
+  const { directory, store } = await setup();
+  const savedToken = "saved-token-from-0.3";
+  await writeFile(
+    path.join(directory, "mcp.json"),
+    JSON.stringify({
+      version: 1,
+      port: 12345,
+      bindings: {
+        [createHash("sha256").update(savedToken).digest("hex")]: {
+          agentId: "legacy",
+          workspaceId: "workspace",
+          sessionId: "00000000-0000-4000-8000-000000000001",
+          title: "Legacy agent",
+          active: false,
+        },
+      },
+    }),
   );
-  await expect(sessions.activate("a", "other-workspace")).rejects.toThrow(
-    /does not belong/,
-  );
-  await expect(sessions.activate("b", "workspace", "forged")).rejects.toThrow(
-    /Unknown/,
-  );
-  await sessions.activate("legacy-agent", "workspace");
-  expect(sessions.resolve(token).agentId).toBe("a");
+  const sessions = await Sessions.open(store);
+  cleanup.push(() => sessions.close());
+  expect(sessions.port).toBe(12345);
+  expect(() => sessions.resolve(savedToken)).toThrow(/not active/);
+  // An archived legacy agent that reopens is reactivated with a new session.
+  expect(await sessions.connect("legacy", "workspace", null)).toBeNull();
+  const actor = sessions.resolve(savedToken);
+  expect(actor).toMatchObject({ agentId: "legacy", title: "Legacy agent" });
+  expect(actor.sessionId).not.toBe("00000000-0000-4000-8000-000000000001");
+  await expect(
+    sessions.connect("legacy", "other-workspace", null),
+  ).rejects.toThrow(/does not belong/);
+  await sessions.revoke("legacy");
+  expect(() => sessions.resolve(savedToken)).toThrow(/not active/);
+  expect(await sessions.connect("legacy", "workspace", null)).toBeNull();
+  expect(sessions.resolve(savedToken).agentId).toBe("legacy");
+  // Once the port moves, the saved address is dead: the agent gets a launch
+  // credential instead and the saved one stays inactive.
+  await sessions.setPort(23456);
+  const launched = await sessions.connect("legacy", "workspace", null);
+  expect(launched).not.toBeNull();
+  expect(() => sessions.resolve(savedToken)).toThrow(/not active/);
+  expect(sessions.resolve(launched!.token).title).toBe("Legacy agent");
+  expect(
+    JSON.parse(await readFile(path.join(directory, "mcp.json"), "utf8")),
+  ).toMatchObject({ version: 2, port: 23456, savedPort: 12345 });
 });
 
-test("a saved port conflict fails without silently changing persisted connection settings", async () => {
+test("a taken port moves the endpoint instead of failing", async () => {
   const { store, sessions, directory } = await setup();
   const occupied = createServer();
   await new Promise<void>((resolve) =>
@@ -99,13 +134,13 @@ test("a saved port conflict fails without silently changing persisted connection
   );
   const port = (occupied.address() as AddressInfo).port;
   await sessions.setPort(port);
-  const before = await readFile(path.join(directory, "mcp.json"), "utf8");
-  await expect(
-    startMcp(store, sessions, { enqueue: async () => {} }),
-  ).rejects.toMatchObject({
-    code: "EADDRINUSE",
-  });
-  expect(await readFile(path.join(directory, "mcp.json"), "utf8")).toBe(before);
+  const mcp = await startMcp(store, sessions, { enqueue: async () => {} });
+  cleanup.push(() => mcp.close());
+  expect(new URL(mcp.url).port).not.toBe(String(port));
+  expect(sessions.port).toBe(Number(new URL(mcp.url).port));
+  expect(
+    JSON.parse(await readFile(path.join(directory, "mcp.json"), "utf8")).port,
+  ).toBe(sessions.port);
 });
 
 test("corrupt or symlinked registration files are not overwritten", async () => {
@@ -125,8 +160,7 @@ test("failed authorization persistence disables access instead of serving uncert
   const { directory, store, sessions } = await setup();
   const mcp = await startMcp(store, sessions, { enqueue: async () => {} });
   cleanup.push(() => mcp.close());
-  const token = sessions.register();
-  await sessions.activate("a", "workspace", token);
+  const { token } = (await sessions.connect("a", "workspace", null))!;
   const file = path.join(directory, "mcp.json");
   await rename(file, `${file}.saved`);
   await mkdir(file); // Force atomic replacement to fail, independent of OS permissions.

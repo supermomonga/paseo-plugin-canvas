@@ -83,8 +83,11 @@ test("on Windows, startup, agent registration, canvas writes, reviews and notifi
   const mcp = await startMcp(store, sessions, activity);
   cleanup.push(() => mcp.close());
 
-  const token = sessions.register();
-  await sessions.activate(actor.agentId, actor.workspaceId, token);
+  const { token } = (await sessions.connect(
+    actor.agentId,
+    actor.workspaceId,
+    null,
+  ))!;
   expect(sessions.resolve(token).agentId).toBe(actor.agentId);
   expect(
     JSON.parse(await readFile(path.join(directory, "mcp.json"), "utf8")),
@@ -114,10 +117,7 @@ test("on Windows, startup, agent registration, canvas writes, reviews and notifi
     paseo: {
       agents: {
         ref: () => ({
-          timeline: {
-            append,
-            refetch: async () => ({ entries: [], hasOlder: false }),
-          },
+          timeline: { append },
         }),
       },
     },
@@ -129,9 +129,9 @@ test("on Windows, startup, agent registration, canvas writes, reviews and notifi
     revision: 2,
     action: "updated",
     warningCount: 0,
-    savedAt: "2026-11-23T00:00:00Z",
+    savedAt: new Date().toISOString(),
   });
-  await activity.sync(null, context);
+  await activity.deliver(context.paseo);
   expect(append).toHaveBeenCalledOnce();
 
   await store.delete(actor, { canvasId, lockToken, expectedRevision: 2 });

@@ -1,4 +1,4 @@
-import { defineContract } from "paseo-plugin-helper/shared";
+import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { documentSchema } from "./document";
 import { z } from "zod";
 
@@ -10,9 +10,6 @@ export const editorSchema = z.discriminatedUnion("role", [
   z.object({ role: z.literal("agent"), agentId: idSchema }).strict(),
 ]);
 export type Editor = z.infer<typeof editorSchema>;
-export function editorLabel(editor: Editor, title?: string | null) {
-  return editor.role === "user" ? "User" : (title ?? editor.agentId);
-}
 export const metadataSchema = z
   .object({
     schemaVersion: z.literal(2),
@@ -52,7 +49,7 @@ export const getResultSchema = z.object({
   document: documentSchema,
   observedAt: z.iso.datetime(),
 });
-export const listCanvases = defineContract({
+export const listCanvases = defineRpc({
   name: "canvas.list",
   input: z.object({ workspaceId: idSchema }),
   output: listResultSchema,
@@ -62,24 +59,22 @@ export const recentCanvasSchema = canvasSummarySchema.extend({
 });
 export type RecentCanvas = z.infer<typeof recentCanvasSchema>;
 // Most recently updated canvases across the host's active workspaces.
-export const recentCanvases = defineContract({
+export const recentCanvases = defineRpc({
   name: "canvas.recent",
   input: z.object({ limit: z.number().int().min(1).max(50) }),
   output: z.object({ items: z.array(recentCanvasSchema) }),
 });
-export const getCanvas = defineContract({
+export const getCanvas = defineRpc({
   name: "canvas.get",
   input: z.object({ workspaceId: idSchema, canvasId: idSchema }),
   output: getResultSchema,
 });
-// Null establishes a fresh cursor; a matching cursor waits for a change.
-export const waitForCanvasChange = defineContract({
-  name: "canvas.wait_for_change",
-  input: z.object({
-    workspaceId: idSchema,
-    cursor: z.string().max(100).nullable(),
-  }),
-  output: z.object({ cursor: z.string() }),
+// Sends the current cursor on subscribe, then a new cursor after each committed
+// or lock change. A cursor never repeats across plugin restarts.
+export const watchCanvases = defineSubscription({
+  name: "canvas.watch",
+  input: z.object({ workspaceId: idSchema }),
+  event: z.object({ cursor: z.string().max(100) }),
 });
 export type Metadata = z.infer<typeof metadataSchema>;
 export type EditState = z.infer<typeof editStateSchema>;

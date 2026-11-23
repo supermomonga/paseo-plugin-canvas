@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Image, Text, View } from "react-native";
-import { Modal, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Modal, ScrollView } from "@getpaseo/plugin/client/ui";
 import {
   Button,
   CodeBlock,
@@ -15,6 +15,7 @@ import {
   svgSourceLimit,
   type GraphicInput,
 } from "../shared/media";
+import { useText } from "./i18n";
 
 export function Graphic({
   input,
@@ -32,6 +33,7 @@ export function Graphic({
     staleTime: Infinity,
   });
   const [open, setOpen] = useState(false);
+  const { t } = useText();
   const image = result.data;
   const svg = input.kind === "svg";
   if (inline) {
@@ -46,21 +48,23 @@ export function Graphic({
             color: theme.colors.statusDanger,
             textDecorationLine: "underline",
           }}
-          accessibilityLabel={`Failed to render math. Retry: ${input.source}`}
+          accessibilityLabel={t("content.math.failedLabel", {
+            source: input.source,
+          })}
         >
-          Failed to render math (retry)
+          {t("content.math.failed")}
         </Text>
       );
     if (!image)
       return (
         <Text style={{ color: theme.colors.foregroundMuted }}>
-          Rendering math…
+          {t("content.math.rendering")}
         </Text>
       );
     return (
       <Image
         source={{ uri: image.uri }}
-        accessibilityLabel={`Math: ${input.source}`}
+        accessibilityLabel={t("content.math.label", { source: input.source })}
         style={{
           width: Math.min(image.width, width),
           height: image.height * Math.min(1, width / image.width),
@@ -73,7 +77,7 @@ export function Graphic({
       {image && svg ? (
         <Image
           source={{ uri: image.uri }}
-          accessibilityLabel="SVG image"
+          accessibilityLabel={t("content.svg.label")}
           style={{
             width: Math.min(image.width, width),
             height: image.height * Math.min(1, width / image.width),
@@ -83,7 +87,9 @@ export function Graphic({
         <ScrollView horizontal>
           <Image
             source={{ uri: image.uri }}
-            accessibilityLabel={`Math: ${input.source}`}
+            accessibilityLabel={t("content.math.label", {
+              source: input.source,
+            })}
             style={{ width: image.width, height: image.height }}
           />
         </ScrollView>
@@ -97,15 +103,15 @@ export function Graphic({
           }}
         >
           {result.error
-            ? `Failed to render: ${result.error.message}`
-            : "Rendering…"}
+            ? t("content.graphic.failed", { message: result.error.message })
+            : t("content.graphic.rendering")}
         </Text>
       )}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Button
           variant="secondary"
           size="sm"
-          label="Show source"
+          label={t("content.graphic.showSource")}
           icon="Code"
           onPress={() => setOpen(true)}
         />
@@ -113,7 +119,7 @@ export function Graphic({
           <Button
             variant="secondary"
             size="sm"
-            label="Retry"
+            label={t("common.retry")}
             icon="RefreshCw"
             onPress={() => {
               void result.refetch();
@@ -122,7 +128,7 @@ export function Graphic({
         )}
       </View>
       <Modal
-        title={svg ? "SVG source" : "Math source"}
+        title={svg ? t("content.svg.source") : t("content.math.source")}
         open={open}
         onOpenChange={setOpen}
       >
@@ -167,6 +173,7 @@ export function DocumentImage({
   workspaceId?: string;
   inline?: boolean;
 }) {
+  const { t } = useText();
   const remote = /^https?:\/\//i.test(src);
   const local = !/^[a-z][\w+.-]*:|^\/\//i.test(src);
   const result = useRpcQuery(
@@ -278,7 +285,9 @@ export function DocumentImage({
           color: theme.colors.statusDanger,
           textDecorationLine: "underline",
         }}
-      >{`Unable to display image: ${alt || src} (retry)`}</Text>
+      >
+        {t("content.image.failed", { name: alt || src })}
+      </Text>
     );
   const measured =
     size && size.uri === uri && size.attempt === attempt ? size : undefined;
@@ -286,7 +295,7 @@ export function DocumentImage({
   if (!uri || !display || (directFailed && !fallback))
     return (
       <Text style={{ color: theme.colors.foregroundMuted }}>
-        Loading image…
+        {t("content.image.loading")}
       </Text>
     );
   const scale = Math.min(1, width / display.width);
@@ -294,7 +303,7 @@ export function DocumentImage({
     <Image
       key={`${src}:${attempt}`}
       source={{ uri }}
-      accessibilityLabel={alt || "Image"}
+      accessibilityLabel={alt || t("content.image.label")}
       resizeMode="contain"
       onError={() => setFailed({ uri, attempt })}
       style={{ width: display.width * scale, height: display.height * scale }}

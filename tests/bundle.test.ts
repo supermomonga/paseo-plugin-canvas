@@ -16,7 +16,7 @@ import { dataRoot } from "../server/paths";
 import { compilePlugin } from "../node_modules/@getpaseo/server/dist/server/server/plugins/compiler.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-test("Paseo compiler bundles both entries; server bundle starts, injects MCP and shares data with panel RPC", async () => {
+test("Paseo compiler bundles both entries; every agent opening gets a launch-only Canvas MCP that shares data with panel RPC", async () => {
   const root = process.cwd();
   const bundles = await compilePlugin({
     client: path.join(root, "index.client.tsx"),
@@ -62,21 +62,30 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
   child.stderr!.on("data", (b) => {
     log += b;
   });
+  const request = async (message: string) => {
+    const reply = once(child, "message");
+    child.send(message);
+    return (await reply)[0];
+  };
   let client = new Client({ name: "bundle-test", version: "1" });
   try {
     const [message] = await once(child, "message");
     if (message.type === "error") throw new Error(message.message);
-    expect(message, log).toMatchObject({ type: "ready" });
+    expect(message, log).toMatchObject({
+      type: "ready",
+      // The descriptor reaches the provider, but never the saved configuration.
+      savedServers: ["existing"],
+      historyServers: [],
+      detachedServers: [],
+    });
+    expect(message.config).toMatchObject({ type: "http" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(message.config.url), {
         requestInit: { headers: message.config.headers },
       }),
     );
-    const initialWatch = once(child, "message");
-    child.send({ type: "watch", cursor: null });
-    const [initial] = await initialWatch;
-    const changedReply = once(child, "message");
-    child.send({ type: "watch", cursor: initial.cursor });
+    const watching = await request("watch");
+    expect(watching.events).toHaveLength(1);
     const result = await client.callTool({
       name: "canvas.create",
       arguments: { title: "Bundle", content: "# Bundle content" },
@@ -88,40 +97,48 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
       timeline: "queued",
       diagnostics: [],
     });
-    const [changed] = await changedReply;
-    expect(changed.type).toBe("changed");
-    expect(changed.cursor).not.toBe(initial.cursor);
-    const reply = once(child, "message");
-    child.send("list");
-    const [list] = await reply;
+    // The plugin kept the daemon session from the agent's opening hook, so
+    // the timeline row appears while the agent is still working.
+    const delivered = await request("activity");
+    expect(delivered.items).toHaveLength(1);
+    expect(delivered.items[0]).toMatchObject({
+      type: "plugin",
+      pluginId: "paseo-canvas",
+      id: `canvas-${created.canvasId}-1`,
+      kind: "canvas-activity",
+      version: 1,
+      data: {
+        workspaceId: "bundle-workspace",
+        canvasId: created.canvasId,
+        revision: 1,
+        action: "created",
+      },
+    });
+    const watched = await request("watched");
+    expect(watched.events.length).toBeGreaterThan(1);
+    expect(watched.events.at(-1).cursor).not.toBe(watching.events[0].cursor);
+    const list = await request("list");
     expect(list.result.items).toHaveLength(1);
     expect(list.result.items[0].title).toBe("Bundle");
-    const documentReply = once(child, "message");
-    child.send("get");
-    const [document] = await documentReply;
+    const document = await request("get");
     expect(document.document.children[0]).toMatchObject({
       type: "element",
       tagName: "h1",
     });
-    const graphicReply = once(child, "message");
-    child.send("graphic");
-    const [graphic] = await graphicReply;
+    const graphic = await request("graphic");
     expect(graphic, JSON.stringify(graphic)).toMatchObject({
       type: "graphic",
       png: true,
     });
     expect(graphic.width).toBeGreaterThan(20);
     // resvg runs on a worker evaluated from inside the bundle.
-    const svgReply = once(child, "message");
-    child.send("svg");
-    const [svg] = await svgReply;
-    expect(svg, JSON.stringify(svg)).toEqual({
+    expect(await request("svg")).toEqual({
       type: "svg",
       width: 120,
       height: 40,
       png: true,
     });
-    const originalConfig = message.config;
+    let config = message.config;
     for (const crash of [false, true]) {
       await client.close();
       const stopped = once(child, "exit");
@@ -153,14 +170,27 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
       });
       const [restarted] = await once(child, "message");
       if (restarted.type === "error") throw new Error(restarted.message);
+      // The resumed opening gets a new credential at the same address; the
+      // previous opening's credential no longer works.
       expect(restarted, log).toMatchObject({
         type: "ready",
-        config: originalConfig,
+        savedServers: ["existing"],
       });
+      expect(restarted.config.url).toBe(config.url);
+      expect(restarted.config.headers).not.toEqual(config.headers);
+      expect(
+        (
+          await fetch(config.url, {
+            method: "POST",
+            headers: config.headers,
+          })
+        ).status,
+      ).toBe(401);
+      config = restarted.config;
       client = new Client({ name: "restart-test", version: "1" });
       await client.connect(
-        new StreamableHTTPClientTransport(new URL(originalConfig.url), {
-          requestInit: { headers: originalConfig.headers },
+        new StreamableHTTPClientTransport(new URL(config.url), {
+          requestInit: { headers: config.headers },
         }),
       );
       const listing = await client.callTool({
@@ -173,47 +203,20 @@ test("Paseo compiler bundles both entries; server bundle starts, injects MCP and
       ).items;
       expect(items).toHaveLength(1);
       expect(items[0].title).toBe("Bundle");
-      const activityReply = once(child, "message");
-      child.send("sync-activity");
-      const [activity] = await activityReply;
-      expect(activity.type).toBe("activity");
-      // Stock Paseo (checked through 0.12.0) does not wire a durable store for
-      // appended plugin rows. Pending plugin notifications survive restart;
-      // already delivered rows are owned by Paseo and disappear when its
-      // in-memory timeline is lost.
-      if (crash) {
-        expect(activity.items).toEqual([]);
-        continue;
-      }
-      expect(activity.items).toHaveLength(1);
-      expect(activity.items[0]).toMatchObject({
-        type: "plugin",
-        pluginId: "paseo-canvas",
-        kind: "canvas-activity",
-        version: 1,
-        data: {
-          workspaceId: "bundle-workspace",
-          canvasId: created.canvasId,
-          revision: 1,
-          action: "created",
-        },
-      });
+      // Paseo keeps appended plugin rows in memory only: the delivered row is
+      // gone after a restart, and nothing is left to deliver again.
+      const activity = await request("activity");
+      expect(activity.items).toEqual([]);
     }
     const locked = await client.callTool({
       name: "lock.acquire",
       arguments: { canvasId: created.canvasId },
     });
     expect(locked.isError, JSON.stringify(locked)).not.toBe(true);
-    const editState = async () => {
-      const reply = once(child, "message");
-      child.send("list");
-      const [list] = await reply;
-      return list.result.items[0].editState.status;
-    };
+    const editState = async () =>
+      (await request("list")).result.items[0].editState.status;
     expect(await editState()).toBe("locked");
-    const closed = once(child, "message");
-    child.send("close-agent");
-    expect((await closed)[0]).toMatchObject({ type: "closed" });
+    expect(await request("close-agent")).toMatchObject({ type: "closed" });
     // Lifecycle events are delivered asynchronously after the runtime closes.
     await expect.poll(editState, { timeout: 5_000 }).toBe("unlocked");
   } finally {

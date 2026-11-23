@@ -21,7 +21,7 @@ import {
   type Metadata,
   type PublicLock,
 } from "../shared/contracts";
-import { CanvasChanges } from "./changes";
+import { CanvasChanges, type ChangeObserver } from "./changes";
 import { syncDirectory } from "./durability";
 import { CanvasError, isMissing } from "./errors";
 import { decodeDocument, encodeDocument } from "./format";
@@ -95,12 +95,13 @@ export class CanvasStore {
     clearTimeout(this.expiryTimer);
     this.changes.close(error);
   }
-  waitForChange(workspaceId: string, cursor: string | null) {
+  /** Follows committed changes and lock changes in one workspace. */
+  watchChanges(workspaceId: string, observer: ChangeObserver) {
     this.assertOpen();
     idSchema.parse(workspaceId);
     // Expiry is also checked here after sleep or a system-clock adjustment.
     for (const key of this.locks.keys()) this.state(key);
-    return this.changes.wait(workspaceId, cursor);
+    return this.changes.watch(workspaceId, observer);
   }
   private changed(key: string) {
     this.changes.publish(key.split("/")[0]);

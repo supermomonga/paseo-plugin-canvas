@@ -17,7 +17,7 @@ import {
   View,
   type ScrollView as NativeScrollView,
 } from "react-native";
-import { TextInput } from "@getpaseo/plugin/client/react-native";
+import { TextInput } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 
 export type EditorDraft = {

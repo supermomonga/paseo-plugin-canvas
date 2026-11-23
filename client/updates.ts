@@ -1,12 +1,11 @@
 import { getReviews } from "../shared/review";
-import { useEffect, useState } from "react";
-import { AppState } from "react-native";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { getClientHost } from "paseo-plugin-helper/client";
+import { useSubscription } from "@getpaseo/plugin/client";
 import {
   listCanvases,
   getCanvas,
-  waitForCanvasChange,
+  watchCanvases,
   type CanvasSummary,
 } from "../shared/contracts";
 
@@ -50,62 +49,75 @@ export async function refreshCanvases(
   );
 }
 
+/**
+ * Follows committed and lock changes of a workspace through the daemon's
+ * subscription (ADR 18). Paseo subscribes again after a reconnect; the first
+ * event then carries the current cursor, so missed changes are read once.
+ * Returns the current interruption, if any.
+ */
 export function useCanvasUpdates(workspaceId: string) {
   const client = useQueryClient();
-  const waitForChange = getClientHost().useRpc(waitForCanvasChange);
-  const [active, setActive] = useState(
-    AppState.currentState !== "background" &&
-      AppState.currentState !== "inactive",
-  );
-  const [error, setError] = useState<Error | null>(null);
+  const [readError, setReadError] = useState<Error | null>(null);
+  const target = useRef<string | null>(null);
+  const applied = useRef<string | null>(null);
+  const draining = useRef(false);
+  const stopped = useRef(false);
+  const wake = useRef<(() => void) | null>(null);
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) =>
-      setActive(state === "active"),
-    );
-    return () => subscription.remove();
+    stopped.current = false;
+    return () => {
+      stopped.current = true;
+      wake.current?.();
+    };
   }, []);
-  useEffect(() => {
-    if (!active) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let finishDelay: (() => void) | undefined;
-    async function follow() {
-      let cursor: string | null = null;
-      let failures = 0;
-      while (!stopped) {
+  async function drain() {
+    if (draining.current) return;
+    draining.current = true;
+    let failures = 0;
+    try {
+      while (!stopped.current && target.current !== applied.current) {
+        const cursor = target.current;
         try {
-          const next = await waitForChange({ workspaceId, cursor });
-          if (stopped) return;
-          if (next.cursor !== cursor) {
-            await refreshCanvases(client, workspaceId);
-            if (stopped) return;
-          }
-          // Advance only after all reads succeed. A failed read is retried even
-          // when no later mutation occurs. A new server epoch also forces a read.
-          cursor = next.cursor;
+          await refreshCanvases(client, workspaceId);
+          // Advance only after every read succeeded; a failed read is retried
+          // even when no later change arrives.
+          applied.current = cursor;
           failures = 0;
-          setError(null);
+          if (!stopped.current) setReadError(null);
         } catch (cause) {
-          if (stopped) return;
-          setError(cause instanceof Error ? cause : new Error(String(cause)));
-          // Reconnect with a fresh snapshot, including changes missed offline.
-          cursor = null;
+          if (stopped.current) return;
+          setReadError(cause instanceof Error ? cause : new Error(String(cause)));
           const delay = Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5));
           await new Promise<void>((resolve) => {
-            finishDelay = resolve;
-            timer = setTimeout(resolve, delay);
+            const timer = setTimeout(resolve, delay);
+            wake.current = () => {
+              clearTimeout(timer);
+              resolve();
+            };
           });
+          wake.current = null;
         }
       }
+    } finally {
+      draining.current = false;
     }
-    void follow();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-      finishDelay?.();
-      // The public RPC API has no cancellation signal. Its server-side wait
-      // expires after 20 seconds; ignore its result after leaving this view.
-    };
-  }, [active, client, waitForChange, workspaceId]);
-  return error;
+  }
+  // Cursors are per workspace; another workspace must be read once.
+  const followed = useRef(workspaceId);
+  if (followed.current !== workspaceId) {
+    followed.current = workspaceId;
+    applied.current = null;
+  }
+  const subscription = useSubscription(
+    watchCanvases,
+    { workspaceId },
+    ({ cursor }) => {
+      target.current = cursor;
+      // A new cursor (for example after a reconnect) retries a failed read now.
+      wake.current?.();
+      void drain();
+    },
+  );
+  if (subscription.status === "error") return subscription.error;
+  return readError;
 }

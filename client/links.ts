@@ -4,7 +4,7 @@ import {
   openExternalUrl,
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
-import type { CanvasSettings } from "../shared/settings";
+import type { CanvasDeviceSettings } from "../shared/settings";
 
 /** Opens an already validated external link (see externalLink). */
 export type LinkOpener = (url: string) => Promise<void>;
@@ -22,7 +22,7 @@ export function openSystemLink(url: string) {
 /** The workspace browser exists only in the Electron app; elsewhere links open
  * externally. The browser never falls back to an external open on its own. */
 export function createLinkOpener(options: {
-  preference: CanvasSettings["openLinksIn"];
+  preference: CanvasDeviceSettings["openLinksIn"];
   openBrowser: OpenBrowser | undefined;
   workspaceId: string;
   serverId: string;

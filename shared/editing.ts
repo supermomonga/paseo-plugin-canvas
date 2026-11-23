@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineContract } from "paseo-plugin-helper/shared";
+import { defineRpc } from "@getpaseo/plugin";
 import {
   canvasSchema,
   contentSchema,
@@ -22,7 +22,7 @@ const result = <T extends z.ZodType>(value: T) =>
     failure,
   ]);
 const saved = z.object({ canvasId: idSchema, revision });
-export const createUserCanvas = defineContract({
+export const createUserCanvas = defineRpc({
   name: "canvas.user.create",
   input: z
     .object({
@@ -33,22 +33,22 @@ export const createUserCanvas = defineContract({
     .strict(),
   output: result(saved),
 });
-export const beginCanvasEdit = defineContract({
+export const beginCanvasEdit = defineRpc({
   name: "canvas.user.begin",
   input: target,
   output: result(z.object({ canvas: canvasSchema, lockToken: z.string() })),
 });
-export const renewCanvasEdit = defineContract({
+export const renewCanvasEdit = defineRpc({
   name: "canvas.user.renew",
   input: lease,
   output: result(z.object({ editState: editStateSchema })),
 });
-export const cancelCanvasEdit = defineContract({
+export const cancelCanvasEdit = defineRpc({
   name: "canvas.user.cancel",
   input: lease,
   output: result(z.object({ editState: editStateSchema })),
 });
-export const saveCanvasEdit = defineContract({
+export const saveCanvasEdit = defineRpc({
   name: "canvas.user.save",
   input: lease.extend({
     expectedRevision: revision,
@@ -57,12 +57,12 @@ export const saveCanvasEdit = defineContract({
   }),
   output: result(saved),
 });
-export const deleteUserCanvas = defineContract({
+export const deleteUserCanvas = defineRpc({
   name: "canvas.user.delete",
   input: target.extend({ expectedRevision: revision }),
   output: result(z.object({ deleted: z.literal(true) })),
 });
-export const previewCanvasDraft = defineContract({
+export const previewCanvasDraft = defineRpc({
   name: "canvas.user.preview",
   input: z.object({ content: contentSchema }).strict(),
   output: z.object({ document: documentSchema }),

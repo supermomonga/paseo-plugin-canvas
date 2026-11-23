@@ -1,6 +1,10 @@
 import { expect, test, vi } from "vitest";
 import { watchCanvasSettings } from "../server/settings";
-import { canvasSettings, defaultCanvasSettings } from "../shared/settings";
+import {
+  canvasSettings,
+  defaultCanvasDeviceSettings,
+  defaultCanvasSettings,
+} from "../shared/settings";
 
 type Listener = (state: unknown) => void;
 function handle(read: () => Promise<unknown>) {
@@ -25,8 +29,8 @@ const ready = (values: object, revision = "1") => ({
 });
 
 test("defaults apply until saved preferences load, and saves update them", async () => {
-  expect(defaultCanvasSettings).toEqual({
-    timelineNotifications: true,
+  expect(defaultCanvasSettings).toEqual({ timelineNotifications: true });
+  expect(defaultCanvasDeviceSettings).toEqual({
     openLinksIn: "workspace-browser",
   });
   const { settings, notify, unsubscribe } = handle(async () =>
@@ -45,9 +49,9 @@ test("a save notified during the initial read wins, and invalid or unreadable do
   let finish!: (state: unknown) => void;
   const slow = handle(() => new Promise((resolve) => (finish = resolve)));
   const watcher = watchCanvasSettings(slow.settings);
-  slow.notify(ready({ openLinksIn: "system" }, "2"));
-  finish(ready({ openLinksIn: "workspace-browser" }, "1"));
-  expect((await watcher.current()).openLinksIn).toBe("system");
+  slow.notify(ready({ timelineNotifications: false }, "2"));
+  finish(ready({ timelineNotifications: true }, "1"));
+  expect((await watcher.current()).timelineNotifications).toBe(false);
 
   const invalid = handle(async () => ({
     status: "invalid",
@@ -65,4 +69,17 @@ test("a save notified during the initial read wins, and invalid or unreadable do
   );
   expect(error).toHaveBeenCalledTimes(2);
   error.mockRestore();
+});
+
+test("version 1 host settings keep notifications and leave links to each device", async () => {
+  expect(
+    await canvasSettings.migrate!(
+      { timelineNotifications: false, openLinksIn: "system" },
+      1,
+    ),
+  ).toEqual({ timelineNotifications: false });
+  expect(await canvasSettings.migrate!({ openLinksIn: "system" }, 1)).toEqual(
+    {},
+  );
+  expect(canvasSettings.schema.parse({})).toEqual(defaultCanvasSettings);
 });

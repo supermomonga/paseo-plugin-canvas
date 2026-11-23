@@ -8,16 +8,36 @@ import { AgentStorage } from "../../node_modules/@getpaseo/server/dist/server/se
 import { PluginAgentClientRegistry } from "../../node_modules/@getpaseo/server/dist/server/server/agent/plugin-provider.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+// Runs the compiled server bundle inside the stock Paseo AgentManager. The
+// plugin context is a test double: hooks run through Paseo's own
+// PluginHookHandlers, and `paseo` models the one PaseoApi the plugin process
+// hands to hooks, handlers and subscriptions (the session stamps pluginId on
+// appended rows).
+const AGENT_ID = "10000000-0000-4000-8000-000000000001";
+const WORKSPACE_ID = "bundle-workspace";
 const require = createRequire(import.meta.url);
-const hooks = new PluginHookHandlers(() => {}),
-  handlers = new Map();
-const invoke = (name, request) =>
-  hooks.invoke(randomUUID(), "before", name, request, {});
+const hooks = new PluginHookHandlers(() => {});
+const handlers = new Map();
+let manager;
+const paseo = {
+  agents: {
+    ref: (agentId) => ({
+      timeline: {
+        append: (item) =>
+          manager.appendTimelineItem(agentId, {
+            ...item,
+            pluginId: "paseo-canvas",
+          }),
+      },
+    }),
+  },
+};
+const invoke = (name, input) => hooks.invoke(randomUUID(), name, input, paseo);
 const factory = (0, eval)(readFileSync(process.argv[2], "utf8"));
 const module = factory(require);
 const cleanupPlugin = module.default({
-  before: hooks.before,
-  on: hooks.on,
+  addHook: hooks.addHook,
   handle(contract, handler) {
     handlers.set(contract.name, handler);
   },
@@ -33,9 +53,28 @@ const cleanupPlugin = module.default({
     };
   },
 });
+/** Runs a subscription handler the way a connected client would. */
+function subscribe(name, input) {
+  const events = [];
+  const controller = new AbortController();
+  const finished = handlers.get(name)(input, {
+    paseo,
+    signal: controller.signal,
+    push: async (event) => {
+      events.push(event);
+    },
+  });
+  return {
+    events,
+    finished,
+    release: () => controller.abort(),
+  };
+}
 const logger = pino({ level: "silent" });
 const registry = new AgentStorage(`${process.argv[2]}.agents`, logger);
 const providers = new PluginAgentClientRegistry(logger);
+// What the provider received when each session opened.
+const opened = [];
 providers.replace([
   {
     id: "custom",
@@ -70,13 +109,10 @@ providers.replace([
               },
             });
           } else if (input.type === "session.open") {
-            if ("PASEO_CANVAS_REGISTRATION" in input.config.env)
-              throw new Error(
-                "Bootstrap secret leaked into provider environment",
-              );
-            const config = input.config.mcpServers["paseo-canvas"];
+            const config = input.config.mcpServers.paseo_canvas;
             if (!input.config.mcpServers.existing)
               throw new Error("Existing MCP setting lost");
+            if (!config) throw new Error("Canvas MCP was not added");
             const client = new Client({
               name: "custom-provider-fixture",
               version: "1",
@@ -89,6 +125,7 @@ providers.replace([
             if ((await client.listTools()).tools.length !== 11)
               throw new Error("Canvas tools unavailable");
             clients.set(input.sessionId, client);
+            opened.push(config);
             listener({
               type: "session.opened",
               requestId: input.requestId,
@@ -116,7 +153,7 @@ providers.replace([
   },
 ]);
 await registry.initialize();
-const manager = new AgentManager({
+manager = new AgentManager({
   logger,
   registry,
   clients: providers.clients(),
@@ -125,13 +162,12 @@ const manager = new AgentManager({
   pluginLifecycle: {
     before: invoke,
     emit: (name, event) => {
-      void hooks.invoke(randomUUID(), "event", name, event, {});
+      void invoke(name, event);
     },
   },
 });
 async function cleanup() {
-  if (manager.getAgent("10000000-0000-4000-8000-000000000001")?.session)
-    await manager.closeAgent("10000000-0000-4000-8000-000000000001");
+  if (manager.getAgent(AGENT_ID)?.session) await manager.closeAgent(AGENT_ID);
   await manager.flush();
   await registry.flush();
   await providers.shutdown();
@@ -142,7 +178,7 @@ try {
   const resume = process.argv[3] === "resume";
   let agent;
   if (resume) {
-    const saved = await registry.get("10000000-0000-4000-8000-000000000001");
+    const saved = await registry.get(AGENT_ID);
     if (!saved?.persistence) throw new Error("Agent persistence was not saved");
     agent = await manager.resumeAgentFromPersistence(
       saved.persistence,
@@ -159,79 +195,80 @@ try {
           existing: { type: "http", url: "https://existing.example.com/mcp" },
         },
       },
-      "10000000-0000-4000-8000-000000000001",
-      { workspaceId: "bundle-workspace", env: { PRESERVED_ENV: "present" } },
+      AGENT_ID,
+      { workspaceId: WORKSPACE_ID },
     );
   }
   await manager.flush();
   await registry.flush();
-  const legacy = await invoke("agent.session_open", {
-    agentId: "legacy-agent",
-    workspaceId: "bundle-workspace",
+  const saved = await registry.get(AGENT_ID);
+  // History reads and agents without a workspace get no Canvas server.
+  const history = await invoke("agent.open.before", {
+    agentId: "history-agent",
+    workspaceId: WORKSPACE_ID,
     provider: "custom",
     cwd: process.cwd(),
     reason: "resume",
-    purpose: "interactive",
+    purpose: "history",
+    title: null,
+    background: false,
+    labels: {},
+    metadata: {},
+    tools: [],
     env: {},
+    mcpServers: {},
   });
-  if ("mcpServers" in legacy) throw new Error("Legacy agent was modified");
+  const detached = await invoke("agent.open.before", {
+    agentId: "detached-agent",
+    workspaceId: null,
+    provider: "custom",
+    cwd: process.cwd(),
+    reason: "create",
+    purpose: "interactive",
+    title: null,
+    background: false,
+    labels: {},
+    metadata: {},
+    tools: [],
+    env: {},
+    mcpServers: {},
+  });
   process.send({
     type: "ready",
-    config: agent.config.mcpServers["paseo-canvas"],
+    config: opened.at(-1),
+    savedServers: Object.keys(saved.config.mcpServers ?? {}),
+    historyServers: Object.keys(history.mcpServers),
+    detachedServers: Object.keys(detached.mcpServers),
   });
+  let watch;
   process.on("message", async (message) => {
-    if (message === "sync-activity") {
-      // Model the public RPC context. The session stamps pluginId; the real
-      // stock AgentManager below owns timeline storage. It does not deduplicate.
-      await handlers.get("canvas.sync_activity")(
-        { cursor: null },
-        {
-          paseo: {
-            agents: {
-              ref: (agentId) => ({
-                timeline: {
-                  append: (item) =>
-                    manager.appendTimelineItem(agentId, {
-                      ...item,
-                      pluginId: "paseo-canvas",
-                    }),
-                  refetch: async (options) => {
-                    const page = manager.fetchTimeline(agentId, options);
-                    return {
-                      ...page,
-                      entries: page.rows.map((row) => ({ item: row.item })),
-                      startCursor: page.rows.length
-                        ? { epoch: page.epoch, seq: page.rows[0].seq }
-                        : null,
-                    };
-                  },
-                },
-              }),
-            },
-          },
-        },
-      );
-      await manager.flush();
-      process.send({
-        type: "activity",
-        items: manager
-          .getTimeline(agent.id)
-          .filter((item) => item.type === "plugin"),
-      });
+    if (message === "watch") {
+      watch = subscribe("canvas.watch", { workspaceId: WORKSPACE_ID });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      process.send({ type: "watching", events: watch.events });
     }
-    if (message?.type === "watch") {
-      const result = await handlers.get("canvas.wait_for_change")({
-        workspaceId: "bundle-workspace",
-        cursor: message.cursor,
-      });
-      process.send({ type: "changed", ...result });
+    if (message === "watched") {
+      process.send({ type: "watched", events: watch.events });
+      watch.release();
+      await watch.finished;
+    }
+    if (message === "activity") {
+      // Rows arrive through the daemon session the plugin kept from its hooks.
+      const deadline = Date.now() + 5_000;
+      let items = [];
+      while (Date.now() < deadline) {
+        items = manager
+          .getTimeline(agent.id)
+          .filter((item) => item.type === "plugin");
+        if (items.length) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      process.send({ type: "activity", items });
     }
     if (message === "list")
       process.send({
         type: "list",
-        result: await handlers.get("canvas.list")({
-          workspaceId: "bundle-workspace",
-        }),
+        result: await handlers.get("canvas.list")({ workspaceId: WORKSPACE_ID }),
       });
     if (message === "graphic") {
       try {
@@ -272,15 +309,15 @@ try {
     }
     if (message === "get") {
       const result = await handlers.get("canvas.get")({
-        workspaceId: "bundle-workspace",
+        workspaceId: WORKSPACE_ID,
         canvasId: (
-          await handlers.get("canvas.list")({ workspaceId: "bundle-workspace" })
+          await handlers.get("canvas.list")({ workspaceId: WORKSPACE_ID })
         ).items[0].canvasId,
       });
       process.send({ type: "document", document: result.document });
     }
     if (message === "close-agent") {
-      // The stock AgentManager emits agent.closed through pluginLifecycle.
+      // The stock AgentManager emits agent.close.after through pluginLifecycle.
       await manager.closeAgent(agent.id);
       process.send({ type: "closed" });
     }

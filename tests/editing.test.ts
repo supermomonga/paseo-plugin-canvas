@@ -359,9 +359,14 @@ test("registered RPCs validate inputs, prevent caller-supplied identities, and r
   registerUserEditing(
     {
       handle(contract, handler) {
-        handlers.set(contract.name, async (input) =>
-          contract.output.parse(
-            await handler(contract.input.parse(input), {} as never),
+        // User editing registers RPCs only, never subscriptions.
+        const rpc = contract as Extract<typeof contract, { output: unknown }>;
+        handlers.set(rpc.name, async (input) =>
+          rpc.output.parse(
+            await (handler as (input: unknown, context: never) => unknown)(
+              rpc.input.parse(input),
+              {} as never,
+            ),
           ),
         );
       },

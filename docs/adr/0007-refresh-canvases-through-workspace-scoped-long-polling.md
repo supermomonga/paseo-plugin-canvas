@@ -1,11 +1,13 @@
 ---
 number: 7
 title: Refresh canvases through workspace-scoped long polling
-status: accepted
+status: superseded
 date: 2026-09-11
 links:
 - target: 2
   kind: relatesto
+- target: 18
+  kind: supersededby
 ---
 
 # Refresh canvases through workspace-scoped long polling
@@ -76,3 +78,5 @@ On a changed cursor, invalidate workspace query data, refresh the list and then 
 ## More Information
 
 See [change coordinator](../../server/changes.ts), [store notifications](../../server/store.ts), [RPC contracts](../../shared/contracts.ts) and [UI update behavior](../ui.md#canvasの自動更新). Revisit the transport if a released plugin subscription API provides equivalent workspace scoping and restart/reconnect guarantees; preserve those guarantees regardless of transport.
+
+Superseded by [ADR 18](./0018-require-paseo-0-17-and-give-every-agent-opening-launch-only-canvas-mcp-live-subscriptions-tab-state-device-settings-translations-and-host-mermaid-rendering.md): Paseo 0.16 plugin subscriptions now deliver the same workspace-scoped cursors.

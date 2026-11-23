@@ -12,7 +12,7 @@ import {
   View,
   type ScrollView as NativeScrollView,
 } from "react-native";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Button, useRpcQuery, getClientHost } from "paseo-plugin-helper/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -52,13 +52,38 @@ import {
   emptyEditorDraft,
 } from "./review-input";
 
-import { ReviewSendDialog } from "./review-send";
+import {
+  ReviewSendDialog,
+  reviewErrorText,
+  reviewServerText,
+} from "./review-send";
+import { useText } from "./i18n";
 
-const statuses = {
-  needs_agent_review: "Needs agent review",
-  needs_user_review: "Needs your review",
-  resolved: "Resolved",
-};
+type Translate = ReturnType<typeof useText>["t"];
+
+/** The kind of a review target, as `targetLabel` reports it, in the app language. */
+function targetName(t: Translate, label: string) {
+  switch (label) {
+    case "diagram":
+      return t("review.targets.diagram");
+    case "image":
+      return t("review.targets.image");
+    case "code block":
+      return t("review.targets.codeBlock");
+    case "paragraph":
+      return t("review.targets.paragraph");
+    case "heading":
+      return t("review.targets.heading");
+    case "list":
+      return t("review.targets.list");
+    case "quote":
+      return t("review.targets.quote");
+    case "callout":
+      return t("review.targets.callout");
+    default:
+      return label;
+  }
+}
 export function ReviewDocument({
   canvas,
   document,
@@ -73,6 +98,7 @@ export function ReviewDocument({
   fontSize: number;
 }) {
   const scope = { workspaceId: canvas.workspaceId, canvasId: canvas.canvasId };
+  const { t } = useText();
   const colors = theme.colors,
     client = useQueryClient(),
     host = getClientHost();
@@ -229,7 +255,7 @@ export function ReviewDocument({
     try {
       return await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(reviewErrorText(t, e));
       return undefined;
     } finally {
       setBusy(false);
@@ -367,7 +393,10 @@ export function ReviewDocument({
           accessibilityRole={selecting ? "checkbox" : undefined}
           accessibilityLabel={
             selecting
-              ? `Select ${targetLabel(node)} for comment: ${targetQuote(node).replace(/\s+/g, " ").slice(0, 120)}`
+              ? t("review.selectTarget", {
+                  target: targetName(t, targetLabel(node)),
+                  quote: targetQuote(node).replace(/\s+/g, " ").slice(0, 120),
+                })
               : undefined
           }
           aria-checked={selecting ? selected : undefined}
@@ -422,7 +451,11 @@ export function ReviewDocument({
                   key={id}
                   icon="MessageSquare"
                   label={`#${numbers.get(id)}`}
-                  accessibilityLabel={`${expanded ? "Close" : "Open"} comment ${numbers.get(id)}`}
+                  accessibilityLabel={
+                    expanded
+                      ? t("review.toggleClose", { number: numbers.get(id)! })
+                      : t("review.toggleOpen", { number: numbers.get(id)! })
+                  }
                   onPress={() => {
                     if (expanded) {
                       setInline(null);
@@ -591,13 +624,15 @@ export function ReviewDocument({
             <Text style={{ ...titleText, flex: 1, color: colors.foreground }}>
               {inline.kind === "new"
                 ? reattach
-                  ? "Reattach comment"
-                  : "New comment"
-                : `Comment #${numbers.get(inline.id)}`}
+                  ? t("review.reattachComment")
+                  : t("review.newComment")
+                : t("review.commentNumber", {
+                    number: numbers.get(inline.id)!,
+                  })}
             </Text>
             <ToolbarButton
               icon="X"
-              accessibilityLabel="Close comment"
+              accessibilityLabel={t("review.closeComment")}
               onPress={() => {
                 setInline(null);
                 if (inline.kind === "new") setSelecting(true);
@@ -612,22 +647,23 @@ export function ReviewDocument({
               <View style={{ gap: 8 }}>
                 {selection.documentRevision !== canvas.revision && (
                   <Text style={{ color: colors.statusWarning }}>
-                    Canvas changed. Select the target again; your comment is
-                    preserved.
+                    {t("review.targetChanged")}
                   </Text>
                 )}
                 <CommentEditor
                   theme={theme}
-                  label="Comment"
+                  label={t("review.comment")}
                   value={draft}
                   onChangeText={setDraft}
-                  placeholder="Describe the change you want"
+                  placeholder={t("review.commentPlaceholder")}
                   hideInput={!!reattach}
                   actions={
                     <View style={{ flexDirection: "row", gap: 8 }}>
                       <ToolbarButton
                         icon="Check"
-                        label={reattach ? "Reattach" : "Save comment"}
+                        label={
+                          reattach ? t("review.reattach") : t("review.saveComment")
+                        }
                         onPress={() => void save()}
                         disabled={
                           busy ||
@@ -637,7 +673,7 @@ export function ReviewDocument({
                       />
                       <ToolbarButton
                         icon="X"
-                        label="Cancel"
+                        label={t("review.cancel")}
                         onPress={() => {
                           finishSelection(true);
                         }}
@@ -669,18 +705,17 @@ export function ReviewDocument({
         }}
       >
         <Text style={{ ...titleText, color: colors.foreground }}>
-          Comments ({threads.length})
+          {t("review.commentsWithTotal", { total: threads.length })}
         </Text>
         <ToolbarButton
           icon={showResolved ? "EyeOff" : "Eye"}
-          label="Resolved"
+          label={t("review.showResolved")}
           onPress={() => setShowResolved(!showResolved)}
         />
       </View>
       {!threads.length && (
         <Text style={{ color: colors.foregroundMuted }}>
-          Choose Comment mode, then tap or click the elements you want to
-          comment on.
+          {t("review.emptyHint")}
         </Text>
       )}
       {threads
@@ -695,11 +730,15 @@ export function ReviewDocument({
                 <Text
                   style={{ ...titleText, flex: 1, color: colors.foreground }}
                 >
-                  Comment #{numbers.get(thread.id)}
+                  {t("review.commentNumber", {
+                    number: numbers.get(thread.id)!,
+                  })}
                 </Text>
                 <ToolbarButton
                   icon="ArrowRight"
-                  accessibilityLabel={`Open comment ${numbers.get(thread.id)}`}
+                  accessibilityLabel={t("review.toggleOpen", {
+                    number: numbers.get(thread.id)!,
+                  })}
                   onPress={() =>
                     activate(
                       thread.id,
@@ -745,12 +784,11 @@ export function ReviewDocument({
                     : colors.foregroundMuted,
               }}
             >
-              Request ·{" "}
-              {last.status === "accepted" ? "Sent to agent" : last.status}
+              {t(`review.request.${last.status}`)}
             </Text>
             {!!last.error && (
               <Text style={{ ...metaText, color: colors.foregroundMuted }}>
-                {last.error}
+                {reviewServerText(t, last.error)}
               </Text>
             )}
             {(last.status === "failed" || last.status === "unknown") && (
@@ -758,8 +796,8 @@ export function ReviewDocument({
                 icon="Send"
                 label={
                   last.status === "unknown"
-                    ? "Retry (may send twice)"
-                    : "Retry request"
+                    ? t("review.retryUnknown")
+                    : t("review.retryRequest")
                 }
                 disabled={busy}
                 onPress={() => setSendDialog({ request: d })}
@@ -792,7 +830,11 @@ export function ReviewDocument({
       >
         <ToolbarButton
           icon="MessageSquare"
-          label={`Comments${threads.length ? ` (${threads.length})` : ""}`}
+          label={
+            threads.length
+              ? t("review.commentsWithTotal", { total: threads.length })
+              : t("review.comments")
+          }
           onPress={() => {
             if (open) returnToDocument();
             else setOpen(true);
@@ -800,7 +842,9 @@ export function ReviewDocument({
         />
         <ToolbarButton
           icon={selecting ? "X" : "MessageSquarePlus"}
-          label={selecting ? "Cancel selection" : "Comment mode"}
+          label={
+            selecting ? t("review.cancelSelection") : t("review.commentMode")
+          }
           onPress={() => {
             if (selecting) {
               finishSelection(false);
@@ -814,20 +858,20 @@ export function ReviewDocument({
         {open && (
           <ToolbarButton
             icon="ArrowLeft"
-            label="Back to document"
+            label={t("review.backToDocument")}
             onPress={returnToDocument}
           />
         )}
         {selection && !selecting && inline?.kind !== "new" && (
           <ToolbarButton
             icon="MessageSquare"
-            label="Resume comment"
+            label={t("review.resumeComment")}
             onPress={resumeDraft}
           />
         )}
         {selecting && (
           <Text style={{ ...metaText, color: colors.foregroundMuted }}>
-            Tap or click elements to select them. Select again to remove.
+            {t("review.selectingHint")}
           </Text>
         )}
         {selecting && selection && !selectionCurrent && (
@@ -835,8 +879,7 @@ export function ReviewDocument({
             accessibilityRole="alert"
             style={{ ...metaText, color: colors.statusWarning }}
           >
-            Canvas changed. Select the elements again; your comment is
-            preserved.
+            {t("review.elementsChanged")}
           </Text>
         )}
       </View>
@@ -926,7 +969,7 @@ export function ReviewDocument({
         >
           <Button
             icon="Send"
-            label="Send to agent"
+            label={t("review.sendToAgent")}
             size="md"
             variant="primary"
             disabled={busy}
@@ -963,7 +1006,7 @@ export function ReviewDocument({
         >
           <Button
             icon="MessageSquare"
-            label="Add comment"
+            label={t("review.addComment")}
             size="md"
             variant="primary"
             onPress={resumeDraft}
@@ -1024,6 +1067,7 @@ function ReviewCard({
   const setEdit = (edit: string) => {
     if (editing) setDraft({ edits: { ...edits, [editing]: edit } });
   };
+  const { t } = useText();
   const colors = theme.colors,
     anchor = thread.anchors.find((a) => a.id === thread.currentAnchorId)!;
   const scope = { threadId: thread.id, expectedRevision: thread.revision };
@@ -1046,14 +1090,14 @@ function ReviewCard({
           <View style={{ flexDirection: "row", gap: 8 }}>
             <ToolbarButton
               icon={checked ? "CheckSquare" : "Square"}
-              label="Select for sending"
-              accessibilityLabel={`Select comment ${number} for sending`}
+              label={t("review.selectForSending")}
+              accessibilityLabel={t("review.selectForSendingLabel", { number })}
               onPress={toggle}
             />
             <ToolbarButton
               icon="Send"
-              label="Send"
-              accessibilityLabel={`Send comment ${number} to agent`}
+              label={t("review.send")}
+              accessibilityLabel={t("review.sendLabel", { number })}
               disabled={busy}
               onPress={send}
             />
@@ -1067,7 +1111,7 @@ function ReviewCard({
             color: colors.foregroundMuted,
           }}
         >
-          {statuses[thread.status]}
+          {t(`review.status.${thread.status}`)}
         </Text>
       </View>
       {showTargets &&
@@ -1092,7 +1136,7 @@ function ReviewCard({
               </Text>
               <ToolbarButton
                 icon="Locate"
-                label="Go to target"
+                label={t("review.goToTarget")}
                 onPress={() => navigate(index)}
                 disabled={
                   !positionsReady ||
@@ -1102,7 +1146,9 @@ function ReviewCard({
               />
               {projection?.reason && (
                 <Text style={{ ...metaText, color: colors.statusWarning }}>
-                  Outdated · {projection.reason}
+                  {t("review.outdated", {
+                    reason: reviewServerText(t, projection.reason),
+                  })}
                 </Text>
               )}
             </View>
@@ -1111,18 +1157,20 @@ function ReviewCard({
       {thread.status !== "resolved" && (
         <ToolbarButton
           icon="MousePointer2"
-          label="Reattach"
+          label={t("review.reattach")}
           onPress={reattach}
         />
       )}
       {!!thread.assignedAgentId && (
         <Text style={{ ...metaText, color: colors.foregroundMuted }}>
-          Assigned to {assignedName ?? thread.assignedAgentId}
+          {t("review.assigned", {
+            name: assignedName ?? thread.assignedAgentId,
+          })}
         </Text>
       )}
       {!!unsentMessages(review.state, thread).length && (
         <Text style={{ ...metaText, color: colors.statusWarning }}>
-          Unsent changes
+          {t("review.unsent")}
         </Text>
       )}
       {thread.messages.map((m) => (
@@ -1137,24 +1185,26 @@ function ReviewCard({
         >
           <Text style={{ ...metaText, color: colors.foregroundMuted }}>
             {m.author.role === "user"
-              ? "You"
+              ? t("review.you")
               : (m.author.name ?? m.author.agentId)}
             {m.kind === "applied"
-              ? ` · Applied at revision ${m.documentRevision}`
+              ? t("review.appliedAt", {
+                  revision: String(m.documentRevision),
+                })
               : ""}
           </Text>
           {expanded && editing === m.id ? (
             <>
               <CommentEditor
                 theme={theme}
-                label="Edit comment"
+                label={t("review.editComment")}
                 value={edit}
                 onChangeText={setEdit}
                 actions={
                   <View style={{ flexDirection: "row", gap: 6 }}>
                     <ToolbarButton
                       icon="Check"
-                      label="Save"
+                      label={t("review.save")}
                       disabled={busy || !edit.trim()}
                       onPress={() =>
                         void change({
@@ -1169,7 +1219,7 @@ function ReviewCard({
                     />
                     <ToolbarButton
                       icon="X"
-                      label="Cancel"
+                      label={t("review.cancel")}
                       onPress={() => finishEdit()}
                     />
                   </View>
@@ -1192,7 +1242,7 @@ function ReviewCard({
               <View style={{ flexDirection: "row", gap: 6 }}>
                 <ToolbarButton
                   icon="Pencil"
-                  label="Edit"
+                  label={t("review.edit")}
                   disabled={busy}
                   onPress={() => {
                     setDraft({
@@ -1203,7 +1253,7 @@ function ReviewCard({
                 />
                 <ToolbarButton
                   icon="Trash2"
-                  label="Delete"
+                  label={t("review.delete")}
                   disabled={busy}
                   onPress={() =>
                     void change({ action: "delete", ...scope, messageId: m.id })
@@ -1217,14 +1267,14 @@ function ReviewCard({
         <>
           <CommentEditor
             theme={theme}
-            label="Reply"
+            label={t("review.reply")}
             value={reply}
             onChangeText={setReply}
-            placeholder="Reply or clarify the request"
+            placeholder={t("review.replyPlaceholder")}
             actions={
               <ToolbarButton
                 icon="MessageSquarePlus"
-                label="Save reply"
+                label={t("review.saveReply")}
                 disabled={busy || !reply.trim()}
                 onPress={() =>
                   void change({ action: "reply", ...scope, body: reply }).then(
@@ -1240,7 +1290,9 @@ function ReviewCard({
       )}
       <ToolbarButton
         icon={thread.status === "resolved" ? "RotateCcw" : "Check"}
-        label={thread.status === "resolved" ? "Reopen" : "Resolve"}
+        label={
+          thread.status === "resolved" ? t("review.reopen") : t("review.resolve")
+        }
         disabled={busy}
         onPress={() =>
           void change({

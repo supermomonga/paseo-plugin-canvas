@@ -17,18 +17,20 @@ Keep plans, notes, and review discussions in one place. Ask an agent to write a 
 ## What you can do
 
 - **Share documents across sessions.** Keep multiple canvases in a workspace, with changes appearing automatically.
-- **Write with an agent or on your own.** Create, edit, preview, and delete Markdown documents directly in Paseo.
+- **Write with an agent or on your own.** Create, edit, preview, and delete Markdown documents directly in Paseo. Every agent in the workspace can use Canvas, including agents created before you installed it.
 - **Review in context.** Comment on paragraphs, tables, diagrams, or several blocks together, then send selected discussions to an agent.
 - **Keep edits coordinated.** See who is editing. Only one user or agent can edit a document at a time, while everyone else can keep reading.
+- **Attach a canvas to a prompt.** Pick a canvas from the composer's attachment menu to send its current text with your message.
+- **Use it in your language.** The interface follows Paseo's language setting, in English or Japanese.
 - **Keep your project directory clean.** Saved canvases live on the Paseo daemon host and survive restarts.
 
 ## Get started
 
 ### Requirements
 
-- **Paseo 0.12.0 or later** on both the daemon host and the app, with plugins enabled on the host where your agents run.
+- **Paseo 0.17.1 or later** on both the daemon host and the app, with plugins enabled on the host where your agents run.
 - **Node.js 22.22+** and **npm 11+** installed on that host.
-- For agent access, an agent provider that supports **HTTP MCP**, the connection used to expose Canvas tools to agents.
+- For agent access, an agent provider that accepts **MCP servers**, the connection used to expose Canvas tools to agents. Every built-in Paseo provider does.
 
 ### Install
 
@@ -44,18 +46,24 @@ Alternatively, install from a terminal on the daemon host:
 paseo plugin install npm:paseo-canvas
 ```
 
-This installs the latest release of the [npm package](https://www.npmjs.com/package/paseo-canvas). To follow the `main` branch instead, use the `github:supermomonga/paseo-plugin-canvas` source. Paseo releases before 0.12.0 refuse to load this version; update Paseo first.
+This installs the latest release of the [npm package](https://www.npmjs.com/package/paseo-canvas). To follow the `main` branch instead, use the `github:supermomonga/paseo-plugin-canvas` source. Paseo releases before 0.17.1 refuse to load this version; update both the daemon and the app first. Canvas 0.3 remains available on npm for Paseo 0.12 to 0.16.
 
-Paseo installs dependencies automatically. Git installations also build the rendering assets on the host. Confirm that `paseo-canvas` is running in **Settings → Plugins**. See the [Paseo plugin guide](https://paseo.sh/docs/plugins) for installation details.
+Paseo installs dependencies automatically. Git installations also build the rendering assets on the host. Confirm that **Canvas** is running in **Settings → Plugins**. See the [Paseo plugin guide](https://paseo.sh/docs/plugins) for installation details.
 
-> [!IMPORTANT]
-> Create a **new agent after installing or enabling the plugin** to give it Canvas access. Existing agents and imported sessions do not receive Canvas tools automatically. Agents created with Canvas enabled retain their access when resumed.
+> [!NOTE]
+> Agents receive Canvas tools each time their session opens, including agents created before the plugin and imported sessions. A session that was already running reopens before its next prompt; Paseo does this automatically.
 
 ### Open Canvas
 
 Choose **Canvas** in the sidebar to list the most recently updated canvases across the host's workspaces, then pick one to open it as a full page. You can reorder or hide this item in **Settings → Sidebar**.
 
-Inside a workspace, choose **Open Canvas** from the Command Center (**⌘K** on macOS, **Ctrl+K** on Windows/Linux) to open the Canvas panel beside your agents. On iOS and Android, use the notebook icon in the workspace header. In the panel, **Open in full screen** shows the current canvas as a full page; its address keeps the canvas across reloads and back navigation.
+Inside a workspace, open the Canvas panel beside your agents in any of these ways:
+
+- Choose **Canvas** from the workspace's new-tab menu, on desktop and mobile.
+- Choose **Open Canvas** from the Command Center (**⌘K** on macOS, **Ctrl+K** on Windows/Linux).
+- Type `/canvas` in the composer, or `/canvas <title>` to open the canvas whose title matches best: an exact title first, then a title that starts with the text, then one that contains it.
+
+The panel remembers the selected canvas and the list layout for its tab, so they come back after a reload. In the panel, **Open in full screen** shows the current canvas as a full page; its address keeps the canvas across reloads and back navigation.
 
 ### Update
 
@@ -67,6 +75,9 @@ paseo plugin update paseo-canvas
 
 npm installations update to the latest release. Git installations update to the latest `main`.
 
+> [!NOTE]
+> Updating from Canvas 0.3 needs Paseo 0.17.1 or later. Agents created by Canvas 0.3 keep the Canvas connection saved in their configuration; other agents get Canvas when their session next opens. The **Open web links in** setting moves from the host to each device and starts at its default on every device. Canvas 0.3 cannot read the connection registry this version writes, so going back to 0.3 requires deleting `mcp.json` from the Canvas storage directory, which disconnects agents created by 0.3.
+
 > [!WARNING]
 > Upgrading from the earlier version 1 storage format requires manual conversion of canvas metadata. Back up Canvas storage before upgrading; there is no automatic migration. Old version 1 review comments are unsupported and are replaced when a new comment is saved.
 
@@ -76,7 +87,7 @@ npm installations update to the latest release. Git installations update to the 
 
 Choose **New canvas**, enter a title and Markdown content, then press **Save**. Switch between **Preview** to read the document and **Code** to inspect or copy its Markdown.
 
-You can also ask a Canvas-enabled agent:
+You can also ask an agent in the workspace:
 
 > Create a canvas named “Implementation plan” with the proposed changes and a verification checklist.
 
@@ -86,6 +97,8 @@ Then ask another agent in the **same workspace**:
 
 Agent saves add a timeline notification with an **Open canvas** button. It opens the latest saved document, so you can return to the work directly from the conversation. You can turn these notifications off in the [settings](#settings).
 
+To give an agent the text of a canvas directly, open the composer's attachment menu, choose **Attach canvas**, and search by title or workspace. The prompt carries a snapshot of the canvas as it is at that moment.
+
 ### Edit a document
 
 Choose **Edit** to start editing. **Preview** shows your unsaved draft, and **Markdown** returns to the input. **Save** commits your changes and releases the edit lock. **Cancel** leaves the saved document unchanged and asks for confirmation before discarding edits.
@@ -93,7 +106,7 @@ Choose **Edit** to start editing. **Preview** shows your unsaved draft, and **Ma
 If someone else is editing, you can keep reading the latest saved version. Edit locks last five minutes and renew automatically while the editor is active. When an agent's session closes or is archived, Canvas releases that agent's locks right away.
 
 > [!NOTE]
-> Drafts are kept in memory. Switching between preview and editing keeps them, but closing the app loses unsaved changes.
+> Drafts are kept in memory. Switching between preview and editing keeps them, and Paseo asks before you close a Canvas tab with unsaved changes, but closing the app loses them.
 
 **Delete** asks you to confirm the canvas title before permanently removing the document and all its comments.
 
@@ -109,16 +122,16 @@ Saving a comment does **not** send a prompt: you choose what to send and when. S
 
 Use **Comments** to browse discussions and **Go to target** to return to the relevant passage. Comments follow document edits where their location remains clear. If a comment becomes **Outdated**, its original quote is preserved; use **Reattach** to select a new target.
 
-Only Canvas-enabled sessions in the same workspace appear as recipients. Refresh the **Agent session** picker to pick up session changes.
+Every agent session of the same workspace appears as a recipient, except archived and background agents. Refresh the **Agent session** picker to pick up session changes.
 
 ### Settings
 
-Open **Settings → Plugins → paseo-canvas**, or choose **Canvas settings** from the Command Center. Settings are stored on the daemon host and apply to every client of that host.
+Open **Settings → Plugins → Canvas**, or choose **Canvas settings** from the Command Center.
 
-| Setting | Effect |
-| --- | --- |
-| **Canvas notifications** | Adds a timeline row with an **Open canvas** button when an agent creates or updates a canvas. On by default. |
-| **Open web links in** | **Workspace browser** opens document links in a browser tab of the workspace in the desktop app; other clients use the system browser. **System browser** always opens them externally. Mail links always use the system handler. |
+| Setting | Applies to | Effect |
+| --- | --- | --- |
+| **Canvas notifications** | Every client of the host | Adds a timeline row with an **Open canvas** button when an agent creates or updates a canvas. On by default. |
+| **Open web links in** | This device only | **Workspace browser** opens document links in a browser tab of the workspace in the desktop app; other clients use the system browser. **System browser** always opens them externally. Mail links always use the system handler. |
 
 ## Supported content
 
@@ -129,10 +142,10 @@ Open **Settings → Plugins → paseo-canvas**, or choose **Canvas settings** fr
 | Images | HTTP/HTTPS images and workspace-relative PNG, JPEG, GIF, WebP, and SVG files. Local images must be at most 5 MB; symlinks and paths outside the workspace are rejected. |
 | SVG | Workspace and HTTP/HTTPS `.svg` images, and SVG written in a ` ```svg ` code block, on desktop and mobile. |
 | Mathematics | Inline and block TeX formulas. |
-| Mermaid diagrams | A subset of flowcharts and sequence diagrams, with zoom, pan, and expanded views. |
+| Mermaid diagrams | Every diagram type Paseo can draw. Flowcharts and sequence diagrams in Canvas's supported form get zoom, pan, and expanded views. |
 | Embedded HTML | Collapsible `details`/`summary`, line breaks, subscript, and superscript. Other raw HTML appears as text; scripts do not run. |
 
-**Full Mermaid syntax is not supported.** Use one declaration or connection per line. Subgraphs, styling directives, and sequence blocks such as `loop` and `alt` are unsupported. If a diagram cannot render, Canvas shows its source and an explanation; agent saves also return feedback to help correct it.
+**Mermaid outside Canvas's supported form uses Paseo's renderer.** Canvas draws flowcharts and sequence diagrams itself when they use one declaration or connection per line and no subgraphs, styling directives, or sequence blocks such as `loop` and `alt`. Other diagrams are drawn by Paseo's own Mermaid renderer, without Canvas's zoom controls. Canvas cannot check that syntax, so agent saves report such diagrams as information rather than errors.
 
 **SVG is shown as a static picture.** Apart from external SVGs that the desktop app can draw itself, the daemon host converts SVG to an image, so it does not stay sharp when enlarged. Scripts, animation, `foreignObject`, and files the SVG references are ignored. Text uses the bundled Noto Sans JP font whatever font the SVG names. Transparent areas show the Canvas background, so dark lines can be hard to see in a dark theme. An SVG that takes more than 10 seconds to draw is not shown.
 
@@ -154,15 +167,16 @@ Data is separated by Paseo home and workspace. Saved documents survive restarts 
 
 | Problem | What to do |
 | --- | --- |
-| Canvas does not appear | Check **Settings → Plugins** on the correct host and confirm that the plugin is enabled and running. Show the **Canvas** sidebar item in **Settings → Sidebar**. On mobile, use the workspace header's notebook icon. |
-| An agent cannot find Canvas tools | Create a new agent after installation. Confirm that its provider supports HTTP MCP; custom providers must forward Paseo's MCP configuration. |
-| An agent is missing from the recipient list | Use a Canvas-enabled session in the same workspace and refresh the **Agent session** picker. |
+| Canvas does not appear | Check **Settings → Plugins** on the correct host and confirm that the plugin is enabled and running, and that both the daemon and the app run Paseo 0.17.1 or later. Show the **Canvas** sidebar item in **Settings → Sidebar**. Inside a workspace, use the new-tab menu or `/canvas`. |
+| An agent cannot find Canvas tools | Send the agent a prompt so Paseo reopens its session with Canvas. Confirm that its provider accepts MCP servers; custom providers must forward Paseo's MCP configuration. If Canvas was still starting when the agent opened, the plugin logs say so; Canvas reopens the agent once it is idle, or the next opening adds it. |
+| An agent fails to open with "does not support MCP servers (plugin paseo-canvas)" | Its provider rejects MCP servers. Use another provider for that agent, or disable Canvas while you use it. |
+| An agent is missing from the recipient list | Use an agent session in the same workspace that is neither archived nor a background agent, and refresh the **Agent session** picker. |
 | Editing is locked | Wait for the current editor to save or cancel, or for its five-minute lock to expire. An agent's locks are released as soon as its session closes. |
 | Your edit lock was lost | Try **Reacquire lock**. If the saved document has changed, copy your draft before cancelling and reviewing the latest version. |
 | A save or send has an uncertain outcome | Check the saved document or recipient session before retrying. The operation may already have succeeded; retrying can create duplicates. |
 | A diagram will not display | Read the explanation and simplify it to the supported Mermaid subset. |
-| The plugin fails to start | Inspect its **Logs** in Settings → Plugins, or run `paseo plugin logs paseo-canvas`. Check storage permissions and whether its saved MCP port is occupied. |
-| A timeline notification is missing | Check that **Canvas notifications** is on in the [settings](#settings), and keep a Paseo client active for delivery. Paseo does not retain delivered plugin rows across daemon restarts; open the document from Canvas instead. |
+| The plugin fails to start | Inspect its **Logs** in Settings → Plugins, or run `paseo plugin logs paseo-canvas`. Check storage permissions. If its saved MCP port is taken, Canvas moves to another port and logs it. |
+| A timeline notification is missing | Check that **Canvas notifications** is on in the [settings](#settings). A notification appears as soon as the agent saves; if Paseo cannot take it then, Canvas retries, at the latest when the agent's turn ends. Paseo does not retain delivered plugin rows across daemon restarts; open the document from Canvas instead. |
 
 > [!NOTE]
 > Physical iOS/Android keyboard and gesture behavior, Claude/OpenCode connections, and Linux/Windows storage durability remain unverified.

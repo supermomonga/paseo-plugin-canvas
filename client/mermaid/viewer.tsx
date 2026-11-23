@@ -3,6 +3,8 @@ import { PanResponder, Platform, Text, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
 import { MermaidPopup } from "./popup";
 import { Button, CodeBlock } from "paseo-plugin-helper/client";
+import { Markdown } from "@getpaseo/plugin/client/ui";
+import { useText } from "../i18n";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { diagramModel, type DiagramModel } from "../../shared/mermaid/model";
 import {
@@ -13,6 +15,16 @@ import {
 } from "../../shared/mermaid/viewport";
 import { FlowchartView, SequenceView } from "./drawing";
 
+/** A fence longer than any backtick run inside the diagram source. */
+export function mermaidFence(source: string) {
+  const longest = Math.max(
+    2,
+    ...[...source.matchAll(/`+/g)].map((run) => run[0].length),
+  );
+  const fence = "`".repeat(longest + 1);
+  return `${fence}mermaid\n${source}\n${fence}`;
+}
+
 export function Mermaid({
   source,
   theme,
@@ -22,14 +34,14 @@ export function Mermaid({
   theme: PluginTheme;
   width: number;
 }) {
+  const { t } = useText();
   const parsed = useMemo(() => {
     try {
       return { model: diagramModel(source), error: null };
     } catch (error) {
       return {
         model: null,
-        error:
-          error instanceof Error ? error.message : "Unable to parse the diagram.",
+        error: error instanceof Error ? error.message : null,
       };
     }
   }, [source]);
@@ -48,6 +60,8 @@ export function Mermaid({
           onShowCode={showCode}
         />
       ) : (
+        // Outside Canvas's subset, Paseo's own Mermaid renderer draws the
+        // diagram with its viewer (ADR 18). Canvas cannot check this syntax.
         <View
           style={{
             borderWidth: 1,
@@ -59,45 +73,39 @@ export function Mermaid({
           <View
             style={{
               flexDirection: "row",
-              justifyContent: "flex-end",
+              alignItems: "center",
+              gap: 8,
               padding: 8,
               borderBottomWidth: 1,
               borderColor: theme.colors.border,
             }}
           >
+            <Text
+              accessibilityHint={parsed.error ?? undefined}
+              style={{
+                flex: 1,
+                color: theme.colors.foregroundMuted,
+                fontSize: 12,
+                lineHeight: 16,
+              }}
+            >
+              {t("mermaid.standardRenderer")}
+            </Text>
             <Button
-              label="Show code"
+              label={t("mermaid.showCode")}
               icon="Code"
               size="sm"
               onPress={showCode}
             />
           </View>
-          <View accessibilityRole="alert" style={{ padding: 12, gap: 6 }}>
-            <Text
-              style={{
-                color: theme.colors.statusWarning,
-                fontSize: 13,
-                lineHeight: 20,
-              }}
-            >
-              Unable to display this Mermaid diagram
-            </Text>
-            <Text
-              selectable
-              style={{
-                color: theme.colors.foregroundMuted,
-                fontSize: 12,
-                lineHeight: 18,
-              }}
-            >
-              {parsed.error}
-            </Text>
+          <View testID="mermaid-standard-renderer" style={{ padding: 12 }}>
+            <Markdown>{mermaidFence(source)}</Markdown>
           </View>
         </View>
       )}
       {modal !== null && (
         <MermaidPopup
-          title={modal === "diagram" ? "Mermaid diagram" : "Mermaid code"}
+          title={modal === "diagram" ? t("mermaid.diagram") : t("mermaid.code")}
           theme={theme}
           onClose={() => setModal(null)}
         >
@@ -182,6 +190,7 @@ export function DiagramViewport({
   onPopup?: () => void;
   onShowCode?: () => void;
 }) {
+  const { t } = useText();
   const [measured, setMeasured] = useState({
     width: Math.max(1, width),
     height: height ?? 1,
@@ -353,7 +362,7 @@ export function DiagramViewport({
         }}
       >
         <Button
-          label="Zoom out"
+          label={t("mermaid.zoomOut")}
           icon="ZoomOut"
           size="sm"
           disabled={transform.scale <= minimum + 0.0001}
@@ -361,7 +370,9 @@ export function DiagramViewport({
           onPress={() => zoom(1 / 1.25)}
         />
         <Text
-          accessibilityLabel={`Zoom ${Math.round(transform.scale * 100)} percent`}
+          accessibilityLabel={t("mermaid.zoomLevel", {
+            percent: Math.round(transform.scale * 100),
+          })}
           style={{
             color: theme.colors.foregroundMuted,
             minWidth: 42,
@@ -373,7 +384,7 @@ export function DiagramViewport({
           {Math.round(transform.scale * 100)}%
         </Text>
         <Button
-          label="Zoom in"
+          label={t("mermaid.zoomIn")}
           icon="ZoomIn"
           size="sm"
           disabled={transform.scale >= 4}
@@ -381,7 +392,7 @@ export function DiagramViewport({
           onPress={() => zoom(1.25)}
         />
         <Button
-          label="Fit to view"
+          label={t("mermaid.fit")}
           icon="Scan"
           size="sm"
 
@@ -389,7 +400,7 @@ export function DiagramViewport({
         />
         {onPopup && (
           <Button
-            label="Pop out"
+            label={t("mermaid.popOut")}
             icon="Maximize2"
             size="sm"
             onPress={onPopup}
@@ -398,7 +409,7 @@ export function DiagramViewport({
         {onShowCode && (
           <View style={{ marginLeft: "auto" }}>
             <Button
-              label="Show code"
+              label={t("mermaid.showCode")}
               icon="Code"
               size="sm"
               onPress={onShowCode}
@@ -411,8 +422,8 @@ export function DiagramViewport({
         testID="mermaid-viewport"
         accessibilityLabel={
           Platform.OS === "web"
-            ? "Mermaid diagram. Scroll or pinch to zoom, then drag to pan."
-            : "Mermaid diagram. Pinch to zoom, then drag to pan."
+            ? t("mermaid.viewportWeb")
+            : t("mermaid.viewportNative")
         }
         pointerEvents="box-only"
         {...responder.panHandlers}
@@ -457,8 +468,8 @@ export function DiagramViewport({
         }}
       >
         {Platform.OS === "web"
-          ? "Scroll or pinch to zoom · Drag to pan"
-          : "Pinch to zoom · Drag to pan when zoomed in"}
+          ? t("mermaid.gestureWeb")
+          : t("mermaid.gestureNative")}
       </Text>
     </View>
   );

@@ -19,6 +19,11 @@ export function createCanvasSelection() {
       else commit(workspaceId, canvasId);
     },
     selectDirect: commit,
+    /** Seeds a restored selection without notifying; an existing one wins. */
+    restore(workspaceId: string, canvasId: string) {
+      if ((selected.get(workspaceId) ?? null) === null)
+        selected.set(workspaceId, canvasId);
+    },
     guard(workspaceId: string, action: (commit: () => void) => void) {
       guards.set(workspaceId, action);
       return () => {

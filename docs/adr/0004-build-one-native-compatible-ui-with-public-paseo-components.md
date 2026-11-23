@@ -12,6 +12,8 @@ links:
   kind: RelatesTo
 - target: 15
   kind: relatesto
+- target: 18
+  kind: amendedby
 ---
 
 # Build one native-compatible UI with public Paseo components

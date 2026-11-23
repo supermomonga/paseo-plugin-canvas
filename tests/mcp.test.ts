@@ -25,8 +25,7 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
   cleanup.push(() => sessions.close());
   cleanup.push(() => mcp.close());
   async function connect(agent: string, workspace: string) {
-    const token = sessions.register();
-    await sessions.activate(agent, workspace, token);
+    const { token } = (await sessions.connect(agent, workspace, null))!;
     const client = new Client({ name: agent, version: "1.0.0" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(mcp.url), {
@@ -158,15 +157,25 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
       "# Plan\n\n```mermaid\nsequenceDiagram\nA->>B: hi\nloop retry\nend\n```",
   });
   expect(invalid.error).not.toBe(true);
+  // Paseo's Mermaid renderer shows the diagram; the agent learns that Canvas
+  // could not check it, with the first line outside Canvas's subset.
   expect(invalid.data).toMatchObject({
     saved: true,
     revision: 3,
-    diagnosticCount: 2,
+    diagnosticCount: 1,
   });
+  expect(invalid.data.diagnostics).toHaveLength(1);
   expect(invalid.data.diagnostics[0]).toMatchObject({
+    severity: "info",
+    code: "MERMAID_STANDARD_RENDERER",
     line: 6,
+    endLine: 7,
     source: "loop retry",
   });
+  expect(enqueue).toHaveBeenLastCalledWith(
+    "agent-a",
+    expect.objectContaining({ revision: 3, warningCount: 0 }),
+  );
   const renamed = await call(a.client, "canvas.update", {
     canvasId,
     lockToken: lease.data.lockToken,
@@ -176,7 +185,7 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
   expect(renamed.data).toMatchObject({
     saved: true,
     revision: 4,
-    diagnosticCount: 2,
+    diagnosticCount: 1,
   });
   expect(enqueue).toHaveBeenLastCalledWith(
     "agent-a",
@@ -232,8 +241,7 @@ test("turning timeline notifications off still saves and reports the disabled no
     });
   cleanup.push(() => sessions.close());
   cleanup.push(() => mcp.close());
-  const token = sessions.register();
-  await sessions.activate("agent-a", "workspace-a", token);
+  const { token } = (await sessions.connect("agent-a", "workspace-a", null))!;
   const client = new Client({ name: "agent-a", version: "1.0.0" });
   await client.connect(
     new StreamableHTTPClientTransport(new URL(mcp.url), {

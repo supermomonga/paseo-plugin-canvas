@@ -12,7 +12,6 @@ import { z } from "zod";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { canvasActivitySchema, type CanvasActivity } from "../shared/activity";
 import { idSchema } from "../shared/contracts";
-import { CanvasChanges } from "./changes";
 import { syncDirectory } from "./durability";
 import { isMissing } from "./errors";
 
@@ -21,54 +20,34 @@ const entrySchema = z.object({
   activity: canvasActivitySchema,
 });
 type Entry = z.infer<typeof entrySchema>;
-// Derived from the host SDK: npm installations omit @getpaseo/client (ADR 14).
-type PaseoAgentTimelineHandle = ReturnType<
-  PluginHandlerContext["paseo"]["agents"]["ref"]
->["timeline"];
-type PaseoAgentTimelineRefetchOptions = NonNullable<
-  Parameters<PaseoAgentTimelineHandle["refetch"]>[0]
->;
+type Paseo = PluginHandlerContext["paseo"];
 
-async function alreadyAppended(timeline: PaseoAgentTimelineHandle, id: string) {
-  let cursor: PaseoAgentTimelineRefetchOptions["cursor"];
-  for (;;) {
-    const page = await timeline.refetch({
-      direction: cursor ? "before" : "tail",
-      cursor,
-      limit: 200,
-      projection: "canonical",
-    });
-    if (page.error) throw new Error(page.error);
-    if (page.staleCursor || page.reset || page.gap)
-      throw new Error(
-        "Timeline changed while checking canvas notification delivery",
-      );
-    if (
-      page.entries.some(
-        ({ item }) =>
-          item.type === "plugin" &&
-          item.pluginId === "paseo-canvas" &&
-          item.id === id,
-      )
-    )
-      return true;
-    if (!page.hasOlder) return false;
-    if (!page.startCursor || (cursor && page.startCursor.seq >= cursor.seq))
-      throw new Error("Timeline pagination did not advance");
-    cursor = page.startCursor;
-  }
-}
+/** A notification nobody could deliver for this long is dropped. */
+export const ACTIVITY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const RETRY_MAX_MS = 60_000;
 
 export class CanvasActivityQueue {
-  private changes = new CanvasChanges();
   private pending = new Map<string, Entry>();
-  private publishing: Promise<void> = Promise.resolve();
-  private constructor(private directory: string) {}
+  private delivering: Promise<void> = Promise.resolve();
+  // The plugin's daemon session. Paseo hands the same PaseoApi to every hook
+  // and handler of the plugin process; it closes when the plugin stops.
+  private connection: Paseo | null = null;
+  private retry?: ReturnType<typeof setTimeout>;
+  private failures = 0;
+  private closed = false;
+  private constructor(
+    private directory: string,
+    private clock: () => number,
+  ) {}
 
-  static async open(root: string) {
-    const queue = new CanvasActivityQueue(path.join(root, "activity"));
+  static async open(root: string, options: { clock?: () => number } = {}) {
+    const queue = new CanvasActivityQueue(
+      path.join(root, "activity"),
+      options.clock ?? Date.now,
+    );
     await mkdir(queue.directory, { recursive: true, mode: 0o700 });
     await syncDirectory(root);
+    const entries: [string, Entry][] = [];
     for (const filename of (await readdir(queue.directory)).sort()) {
       if (!filename.endsWith(".json")) continue;
       const entry = entrySchema.parse(
@@ -78,16 +57,19 @@ export class CanvasActivityQueue {
       );
       if (filename !== `${queue.key(entry.activity)}.json`)
         throw new Error("Canvas activity identity mismatch");
-      queue.pending.set(queue.key(entry.activity), entry);
+      entries.push([queue.key(entry.activity), entry]);
     }
-    queue.pending = new Map(
-      [...queue.pending].sort(
-        (a, b) =>
-          a[1].activity.savedAt.localeCompare(b[1].activity.savedAt) ||
-          a[1].activity.revision - b[1].activity.revision,
-      ),
+    entries.sort(
+      ([, a], [, b]) =>
+        a.activity.savedAt.localeCompare(b.activity.savedAt) ||
+        a.activity.revision - b.activity.revision,
     );
+    queue.pending = new Map(entries);
     return queue;
+  }
+
+  get size() {
+    return this.pending.size;
   }
 
   private key(activity: CanvasActivity) {
@@ -114,51 +96,99 @@ export class CanvasActivityQueue {
       });
     }
     this.pending.set(key, entry);
-    this.changes.publish("activity");
+    this.kick();
   }
 
-  async sync(cursor: string | null, context: PluginHandlerContext) {
-    const next = await this.changes.wait(
-      "activity",
-      this.pending.size ? null : cursor,
-    );
-    const publish = this.publishing.then(async () => {
-      let failure: unknown;
-      for (const [key, entry] of [...this.pending].slice(0, 10)) {
-        try {
-          const timeline = context.paseo.agents.ref(entry.agentId).timeline;
-          const id = `canvas-${key}`;
-          if (!(await alreadyAppended(timeline, id)))
-            await timeline.append({
-              type: "plugin",
-              id,
-              kind: "canvas-activity",
-              version: 1,
-              data: entry.activity,
-            });
-          await unlink(path.join(this.directory, `${key}.json`)).catch(
-            (error) => {
-              if (!isMissing(error)) throw error;
-            },
-          );
-          await syncDirectory(this.directory);
-          this.pending.delete(key);
-        } catch (error) {
-          // Keep failed notifications for retry without starving other agents.
-          this.pending.delete(key);
+  /**
+   * Keeps the daemon session a hook or handler received, so a save can be
+   * delivered at once (ADR 18). Pending notifications are retried with it.
+   */
+  remember(paseo: Paseo) {
+    if (this.closed) return;
+    const changed = this.connection !== paseo;
+    this.connection = paseo;
+    if (changed) this.kick();
+  }
+
+  /** Delivers every pending notification through `paseo`. */
+  deliver(paseo: Paseo): Promise<void> {
+    const round = this.delivering.then(() => this.round(paseo));
+    this.delivering = round.catch(() => {});
+    return round;
+  }
+
+  /** An archived agent shows no more rows; forget what it never received. */
+  async drop(agentId: string) {
+    for (const [key, entry] of [...this.pending])
+      if (entry.agentId === agentId) await this.remove(key);
+  }
+
+  async close() {
+    this.closed = true;
+    clearTimeout(this.retry);
+    this.connection = null;
+    await this.delivering;
+  }
+
+  private kick() {
+    const paseo = this.connection;
+    if (paseo && this.pending.size && !this.closed)
+      void this.deliver(paseo).catch(() => {});
+  }
+
+  private async round(paseo: Paseo) {
+    let failure: unknown;
+    for (const [key, entry] of [...this.pending]) {
+      if (this.closed) return;
+      if (!this.pending.has(key)) continue;
+      if (
+        this.clock() - Date.parse(entry.activity.savedAt) >
+        ACTIVITY_MAX_AGE_MS
+      ) {
+        await this.remove(key);
+        continue;
+      }
+      try {
+        // Appending the same plugin row ID replaces the earlier row, so a
+        // retry after a lost response cannot duplicate it.
+        await paseo.agents.ref(entry.agentId).timeline.append({
+          type: "plugin",
+          id: `canvas-${key}`,
+          kind: "canvas-activity",
+          version: 1,
+          data: entry.activity,
+        });
+        await this.remove(key);
+      } catch (error) {
+        // Keep it for retry without starving notifications for other agents,
+        // unless the agent was archived meanwhile.
+        if (this.pending.delete(key)) {
           this.pending.set(key, entry);
           failure = error;
         }
       }
-      if (failure) throw failure;
-    });
-    this.publishing = publish.catch(() => {});
-    await publish;
-    return next;
+    }
+    if (failure === undefined) {
+      this.failures = 0;
+      return;
+    }
+    this.scheduleRetry();
+    throw failure;
   }
 
-  async close() {
-    this.changes.close(new Error("Canvas activity stopped"));
-    await this.publishing;
+  private scheduleRetry() {
+    clearTimeout(this.retry);
+    if (this.closed || !this.connection) return;
+    const delay = Math.min(RETRY_MAX_MS, 1000 * 2 ** Math.min(this.failures++, 6));
+    this.retry = setTimeout(() => this.kick(), delay);
+    this.retry.unref?.();
+  }
+
+  private async remove(key: string) {
+    await unlink(path.join(this.directory, `${key}.json`)).catch((error) => {
+      if (!isMissing(error)) throw error;
+    });
+    await syncDirectory(this.directory);
+    this.pending.delete(key);
   }
 }

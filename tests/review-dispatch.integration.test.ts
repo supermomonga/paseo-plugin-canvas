@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import pino from "pino";
@@ -15,7 +15,6 @@ import type {
   AgentStreamEvent,
 } from "../node_modules/@getpaseo/server/dist/server/server/agent/agent-sdk-types.js";
 import { CanvasStore } from "../server/store";
-import { Sessions } from "../server/sessions";
 import { dispatchReview, recipients } from "../server/review-dispatch";
 
 // Only the provider is a fixture. Directory paging, persistence, lazy resume,
@@ -112,7 +111,7 @@ function providerFixture() {
   return { calls, client };
 }
 
-test("public SDK lists stored recipients after host restart and sends despite orphaned Canvas registrations", async () => {
+test("public SDK lists stored recipients after host restart and sends to them", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "canvas-dispatch-host-"));
   const paseoHome = path.join(root, "paseo");
   const workspaceDirectory = path.join(root, "workspace");
@@ -123,7 +122,6 @@ test("public SDK lists stored recipients after host restart and sends despite or
   let daemon: PaseoDaemon | undefined;
   let client: PaseoClient | undefined;
   let store: CanvasStore | undefined;
-  let sessions: Sessions | undefined;
 
   async function start() {
     daemon = await createPaseoDaemon(
@@ -162,16 +160,6 @@ test("public SDK lists stored recipients after host restart and sends despite or
       config: { provider: "codex/fixture" },
     });
     store = await CanvasStore.open(path.join(root, "canvas"));
-    sessions = await Sessions.open(store);
-    await sessions.setPort(12345);
-    await sessions.activate(agent.id, workspace.id, sessions.register());
-    // A failed creation/deletion can leave an authorized binding without a record.
-    const missingId = randomUUID();
-    await sessions.activate(missingId, workspace.id, sessions.register());
-    const savedBindings = await readFile(
-      path.join(root, "canvas", "mcp.json"),
-      "utf8",
-    );
     await first.host.agentManager.flush();
     await first.host.agentStorage.flush();
     expect(await first.host.agentStorage.get(agent.id)).not.toBeNull();
@@ -179,17 +167,15 @@ test("public SDK lists stored recipients after host restart and sends despite or
     client = undefined;
     await first.host.stop();
     daemon = undefined;
-    await sessions.close();
     await store.close();
 
     const second = await start();
     store = await CanvasStore.open(path.join(root, "canvas"));
-    sessions = await Sessions.open(store);
     expect(second.host.agentManager.getAgent(agent.id)).toBeNull();
     const resumedBefore = fixture.calls.resumed;
     const createdBefore = fixture.calls.created;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const options = await recipients(sessions, second.api, workspace.id);
+      const options = await recipients(second.api, workspace.id);
       expect(options.map((option) => option.id)).toEqual([agent.id]);
       expect(options[0]).toMatchObject({ running: false, blocked: false });
     }
@@ -214,7 +200,7 @@ test("public SDK lists stored recipients after host restart and sends despite or
       },
     });
     const thread = Object.values(review.state.threads)[0];
-    const delivery = await dispatchReview(store.reviews, sessions, second.api, {
+    const delivery = await dispatchReview(store.reviews, second.api, {
       workspaceId: workspace.id,
       canvasId: canvas.canvasId,
       agentId: agent.id,
@@ -225,13 +211,9 @@ test("public SDK lists stored recipients after host restart and sends despite or
     await expect.poll(() => fixture.calls.prompts.length).toBe(1);
     expect(fixture.calls.prompts[0]).toContain("Check after restart");
     expect(fixture.calls.resumed).toBe(resumedBefore + 1);
-    expect(await readFile(path.join(root, "canvas", "mcp.json"), "utf8")).toBe(
-      savedBindings,
-    );
   } finally {
     await client?.close();
     await daemon?.stop();
-    await sessions?.close();
     await store?.close();
     await rm(root, { recursive: true, force: true });
   }

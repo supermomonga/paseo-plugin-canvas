@@ -1,4 +1,5 @@
 import type { Canvas } from "../shared/contracts";
+import { editingEn } from "./i18n/editing";
 
 type Result<T> =
   | { ok: true; value: T }
@@ -62,9 +63,38 @@ const errorCode = (error: unknown) => (error as { code?: string })?.code;
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+/**
+ * Text the editor puts in its state. The component supplies it in the
+ * reader's language; the factory never calls hooks.
+ */
+export type EditorText = {
+  refreshFailed(): string;
+  changedWhileUnavailable(): string;
+  paused(reason: string): string;
+  saveUncertain(): string;
+  /** A failed operation; daemon errors carry a `code`. */
+  failure(error: { code?: string; message: string }): string;
+};
+const english = editingEn.errors;
+export const englishEditorText: EditorText = {
+  refreshFailed: () => english.refreshFailed,
+  changedWhileUnavailable: () => english.changedWhileUnavailable,
+  paused: (reason) => english.paused.replace("{{reason}}", reason),
+  saveUncertain: () => english.saveUncertain,
+  failure: (error) => error.message,
+};
+const failure = (error: unknown) => ({
+  code: errorCode(error),
+  message: message(error),
+});
+
 // A workspace owns its edit state, independently of list/detail topology.
 // Factory functions also work in the host's Hermes source-evaluation runtime.
-export function createCanvasEditor(workspaceId: string, api: EditingApi) {
+export function createCanvasEditor(
+  workspaceId: string,
+  api: EditingApi,
+  text: EditorText = englishEditorText,
+) {
   let state: EditorState = {
     draft: null,
     busy: false,
@@ -89,10 +119,7 @@ export function createCanvasEditor(workspaceId: string, api: EditingApi) {
     try {
       await api.refresh();
     } catch {
-      emit({
-        error:
-          "Unable to refresh canvases. Your last operation will not be repeated automatically.",
-      });
+      emit({ error: text.refreshFailed() });
     }
   }
   async function release(d: CanvasDraft) {
@@ -113,7 +140,7 @@ export function createCanvasEditor(workspaceId: string, api: EditingApi) {
       action?.();
       await refresh();
     } catch (error) {
-      emit({ busy: false, error: message(error) });
+      emit({ busy: false, error: text.failure(failure(error)) });
     }
   }
   function navigate(action: () => void) {
@@ -156,10 +183,7 @@ export function createCanvasEditor(workspaceId: string, api: EditingApi) {
         old.original.revision !== acquired.canvas.revision
       ) {
         await release(d);
-        emit({
-          error:
-            "This canvas changed while your lock was unavailable. Copy your draft, then cancel to read the latest version. Your draft has not been saved.",
-        });
+        emit({ error: text.changedWhileUnavailable() });
         return;
       }
       emit({
@@ -167,7 +191,7 @@ export function createCanvasEditor(workspaceId: string, api: EditingApi) {
           retain && old ? { ...d, title: old.title, content: old.content } : d,
       });
     } catch (error) {
-      emit({ error: message(error) });
+      emit({ error: text.failure(failure(error)) });
     } finally {
       emit({ busy: false });
     }
@@ -196,7 +220,7 @@ export function createCanvasEditor(workspaceId: string, api: EditingApi) {
       if (state.draft)
         emit({
           draft: { ...state.draft, lost: true },
-          error: `Editing paused: ${message(error)}. Your draft is retained.`,
+          error: text.paused(text.failure(failure(error))),
         });
     } finally {
       emit({ busy: false });
@@ -272,7 +296,7 @@ export function createCanvasEditor(workspaceId: string, api: EditingApi) {
         deletion = null;
         api.select(null);
       } catch (error) {
-        emit({ confirmation: null, error: message(error) });
+        emit({ confirmation: null, error: text.failure(failure(error)) });
         deletion = null;
       } finally {
         emit({ busy: false });
@@ -320,8 +344,8 @@ export function createCanvasEditor(workspaceId: string, api: EditingApi) {
               uncertain,
             },
             error: uncertain
-              ? "Save could not be confirmed. Check the latest canvases before creating or saving again. Copy your draft before cancelling."
-              : message(error),
+              ? text.saveUncertain()
+              : text.failure(failure(error)),
           });
       } finally {
         emit({ busy: false });
