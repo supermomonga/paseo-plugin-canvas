@@ -1,7 +1,7 @@
 // Visual-test fixture for @getpaseo/plugin/client. Paseo's app adds these
 // exports when it evaluates a plugin; the npm package only declares them.
 export * from "../../node_modules/@getpaseo/plugin/dist/client/index.js";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PluginTranslationRuntime } from "../../node_modules/@getpaseo/plugin/dist/client/translations.js";
 import {
   defaultCanvasDeviceSettings,
@@ -82,6 +82,23 @@ export function useSettings() {
     reset: async () => false,
     reload: async () => {},
   };
+}
+
+/** Calls the fixture server's handler for the contract. */
+export function useRpc(contract: { name: string }) {
+  return useCallback(
+    async (input: unknown) => {
+      const response = await fetch(`/rpc/${contract.name}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      return data;
+    },
+    [contract],
+  );
 }
 
 export async function openExternalUrl(url: string) {

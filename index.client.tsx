@@ -1,15 +1,5 @@
 import { defineAttachmentSource } from "@getpaseo/plugin";
-import { useRpc, type PluginClientContext } from "@getpaseo/plugin/client";
-import {
-  Icon,
-  Modal,
-  useToast,
-  ScrollView,
-  FlatList,
-  TextInput,
-  copyText,
-} from "@getpaseo/plugin/client/ui";
-import { initClientHelpers } from "paseo-plugin-helper/client";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { CanvasPanel } from "./client/panel";
 import { CanvasActivityRow } from "./client/activity";
 import {
@@ -29,19 +19,6 @@ import { listCanvases } from "./shared/contracts";
 const PANEL = "canvas";
 
 export default function contribute(client: PluginClientContext) {
-  initClientHelpers({
-    // The helper names icons; Paseo's Icon also accepts other icon forms.
-    Icon: ({ name, size, color }) => (
-      <Icon name={name} size={size} color={color} />
-    ),
-    Modal,
-    useRpc,
-    useToast,
-    ScrollView,
-    FlatList,
-    TextInput,
-    copyText,
-  });
   const selection = createCanvasSelection();
   const removers = [
     client.addTimelineRenderer({

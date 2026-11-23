@@ -1,9 +1,9 @@
 import { Text, View } from "react-native";
 import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
-import { PluginThemeProvider } from "paseo-plugin-helper/client";
 import { useToast } from "@getpaseo/plugin/client/ui";
 import type { CanvasActivity } from "../shared/activity";
 import { ToolbarButton, titleText, metaText } from "./controls";
+import { CanvasThemeProvider } from "./ui";
 import { useText } from "./i18n";
 
 export function CanvasActivityRow({
@@ -18,7 +18,7 @@ export function CanvasActivityRow({
   const { t } = useText();
   const activity = item.data;
   return (
-    <PluginThemeProvider theme={theme} layout={layout}>
+    <CanvasThemeProvider theme={theme} layout={layout}>
       <View
         style={{
           padding: 12,
@@ -67,6 +67,6 @@ export function CanvasActivityRow({
           />
         </View>
       </View>
-    </PluginThemeProvider>
+    </CanvasThemeProvider>
   );
 }

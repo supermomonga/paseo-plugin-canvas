@@ -1,38 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { View, Text, Pressable, useWindowDimensions } from "react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  initClientHelpers,
-  PluginThemeProvider,
-  Button,
-} from "paseo-plugin-helper/client";
-import { ScrollView } from "react-native";
-import { Icon, Modal, useToast, FixtureToast } from "./host";
+import { Button, CanvasThemeProvider } from "../../client/ui";
+import { FixtureToast } from "./host";
 
-initClientHelpers({
-  Icon,
-  Modal,
-  useRpc: (contract) =>
-    useCallback(
-      async (input) => {
-        const response = await fetch(`/rpc/${contract.name}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
-        return data;
-      },
-      [contract],
-    ),
-  useToast,
-  ScrollView: React.forwardRef<
-    ScrollView,
-    React.ComponentProps<typeof ScrollView>
-  >((props, ref) => <ScrollView {...props} ref={ref} />),
-});
 const queryClient = new QueryClient();
 import { CanvasPanel } from "../../client/panel";
 import { CanvasActivityRow } from "../../client/activity";
@@ -72,7 +44,7 @@ function Preview() {
     document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
   }, [darkMode]);
   return (
-    <PluginThemeProvider
+    <CanvasThemeProvider
       theme={{ colors: darkMode ? dark : light }}
       layout={{ compact: width < 500, platform: "web" }}
     >
@@ -155,7 +127,7 @@ function Preview() {
         )}
         <FixtureToast />
       </View>
-    </PluginThemeProvider>
+    </CanvasThemeProvider>
   );
 }
 // Visual-test browser entry only; this file is never reachable from a plugin entry.

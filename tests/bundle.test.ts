@@ -95,7 +95,7 @@ test("Paseo compiler bundles both entries; every agent opening gets a launch-onl
     expect(created).toMatchObject({
       saved: true,
       timeline: "queued",
-      diagnostics: [],
+      warnings: [],
     });
     // The plugin kept the daemon session from the agent's opening hook, so
     // the timeline row appears while the agent is still working.

@@ -8,7 +8,7 @@ import {
   type GraphicImage,
 } from "../shared/media";
 
-/** Math and SVG. Mermaid is drawn with React Native views on each client. */
+/** Math and SVG. Paseo's own Mermaid renderer draws diagrams on each client. */
 export class GraphicsRenderer {
   private queue: Promise<unknown> = Promise.resolve();
   private pending = 0;

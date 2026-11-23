@@ -142,10 +142,10 @@ Open **Settings → Plugins → Canvas**, or choose **Canvas settings** from the
 | Images | HTTP/HTTPS images and workspace-relative PNG, JPEG, GIF, WebP, and SVG files. Local images must be at most 5 MB; symlinks and paths outside the workspace are rejected. |
 | SVG | Workspace and HTTP/HTTPS `.svg` images, and SVG written in a ` ```svg ` code block, on desktop and mobile. |
 | Mathematics | Inline and block TeX formulas. |
-| Mermaid diagrams | Every diagram type Paseo can draw. Flowcharts and sequence diagrams in Canvas's supported form get zoom, pan, and expanded views. |
+| Mermaid diagrams | Every diagram type Paseo can draw, with Paseo's own zoom and source views. |
 | Embedded HTML | Collapsible `details`/`summary`, line breaks, subscript, and superscript. Other raw HTML appears as text; scripts do not run. |
 
-**Mermaid outside Canvas's supported form uses Paseo's renderer.** Canvas draws flowcharts and sequence diagrams itself when they use one declaration or connection per line and no subgraphs, styling directives, or sequence blocks such as `loop` and `alt`. Other diagrams are drawn by Paseo's own Mermaid renderer, without Canvas's zoom controls. Canvas cannot check that syntax, so agent saves report such diagrams as information rather than errors.
+**Paseo draws Mermaid diagrams.** On desktop, a diagram has zoom buttons and a full-screen view; on iOS and Android, tap it to open it full screen and pinch to zoom. Canvas does not check Mermaid syntax, so agent saves do not report diagram errors. A diagram that Paseo cannot draw is shown as code.
 
 **SVG is shown as a static picture.** Apart from external SVGs that the desktop app can draw itself, the daemon host converts SVG to an image, so it does not stay sharp when enlarged. Scripts, animation, `foreignObject`, and files the SVG references are ignored. Text uses the bundled Noto Sans JP font whatever font the SVG names. Transparent areas show the Canvas background, so dark lines can be hard to see in a dark theme. An SVG that takes more than 10 seconds to draw is not shown.
 
@@ -174,7 +174,7 @@ Data is separated by Paseo home and workspace. Saved documents survive restarts 
 | Editing is locked | Wait for the current editor to save or cancel, or for its five-minute lock to expire. An agent's locks are released as soon as its session closes. |
 | Your edit lock was lost | Try **Reacquire lock**. If the saved document has changed, copy your draft before cancelling and reviewing the latest version. |
 | A save or send has an uncertain outcome | Check the saved document or recipient session before retrying. The operation may already have succeeded; retrying can create duplicates. |
-| A diagram will not display | Read the explanation and simplify it to the supported Mermaid subset. |
+| A diagram will not display | Paseo shows a diagram it cannot draw as code. Check its Mermaid syntax; Canvas does not validate diagrams. |
 | The plugin fails to start | Inspect its **Logs** in Settings → Plugins, or run `paseo plugin logs paseo-canvas`. Check storage permissions. If its saved MCP port is taken, Canvas moves to another port and logs it. |
 | A timeline notification is missing | Check that **Canvas notifications** is on in the [settings](#settings). A notification appears as soon as the agent saves; if Paseo cannot take it then, Canvas retries, at the latest when the agent's turn ends. Paseo does not retain delivered plugin rows across daemon restarts; open the document from Canvas instead. |
 
@@ -183,4 +183,4 @@ Data is separated by Paseo home and workspace. Saved documents survive restarts 
 
 ## Acknowledgments
 
-Canvas uses [paseo-plugin-helper](https://github.com/xpufx/paseo-plugin-helper) for shared UI components and utilities, and adapts diagram rendering from [paseo-plugin-mermaid](https://github.com/dutchakdev/paseo-plugin-mermaid). See the [Mermaid attribution](third-party/paseo-plugin-mermaid/README.md) and [bundled font attribution](server/assets/README.md).
+Canvas bundles the Noto Sans JP font to draw text in formulas and SVG. See the [bundled font attribution](server/assets/README.md).

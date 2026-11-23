@@ -12,6 +12,8 @@ links:
   kind: amendedby
 - target: 18
   kind: amendedby
+- target: 19
+  kind: amendedby
 ---
 
 # Return rendering diagnostics and open canvases from plugin timeline rows
