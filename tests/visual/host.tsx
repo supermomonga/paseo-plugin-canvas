@@ -48,7 +48,7 @@ import {
   Moon,
   X,
 } from "lucide-react-native";
-import { usePluginTheme } from "paseo-plugin-helper/client";
+import { useCanvasTheme } from "../../client/ui";
 import {
   Modal as NativeModal,
   ScrollView,
@@ -121,7 +121,7 @@ export function Icon({
 }
 export const Modal = Object.assign(
   function FixtureModal({ open, onOpenChange, title, children }: ModalProps) {
-    const { colors } = usePluginTheme();
+    const { colors } = useCanvasTheme();
     return (
       <NativeModal
         visible={open}
@@ -256,7 +256,7 @@ export function SettingsSelect({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const { colors } = usePluginTheme();
+  const { colors } = useCanvasTheme();
   return (
     <View style={{ gap: 8 }}>
       <Text style={{ color: colors.foregroundMuted }}>{label}</Text>
@@ -300,7 +300,7 @@ export function SettingsSelect({
 
 /** Paseo renders Markdown (and Mermaid) itself; the fixture shows the source. */
 export function Markdown({ children }: { children: string }) {
-  const { colors } = usePluginTheme();
+  const { colors } = useCanvasTheme();
   return (
     <Text
       testID="host-markdown"

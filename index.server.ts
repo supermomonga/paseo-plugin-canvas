@@ -2,7 +2,6 @@ import type {
   PluginHandlerContext,
   PluginServerContext,
 } from "@getpaseo/plugin/server";
-import { createPluginLogger } from "paseo-plugin-helper/server";
 import {
   getCanvas,
   listCanvases,
@@ -45,7 +44,6 @@ const OPEN_WAIT_MS = 20_000;
 type Paseo = PluginHandlerContext["paseo"];
 
 export default function contribute(server: PluginServerContext) {
-  const logger = createPluginLogger("paseo-canvas", { version: "" });
   const settings = watchCanvasSettings(
     server.registerSettings(canvasSettings),
   );
@@ -69,7 +67,7 @@ export default function contribute(server: PluginServerContext) {
         timelineNotifications: async () =>
           (await settings.current()).timelineNotifications,
       });
-      logger.info("Canvas storage and MCP are ready");
+      console.log("[paseo-canvas] Canvas storage and MCP are ready");
       return { store, mcp, sessions, activity };
     } catch (error) {
       await sessions?.close();
@@ -79,8 +77,11 @@ export default function contribute(server: PluginServerContext) {
     }
   });
   // Observe initialization failure without turning it into a successful empty store.
-  void ready.catch(() =>
-    logger.error("Canvas initialization failed; operations are unavailable"),
+  void ready.catch((error) =>
+    console.error(
+      "[paseo-canvas] Canvas initialization failed; operations are unavailable",
+      error,
+    ),
   );
   // Every hook and handler receives the plugin's daemon session; the activity
   // queue keeps it to deliver timeline rows as soon as an agent saves (ADR 18).
@@ -203,7 +204,9 @@ export default function contribute(server: PluginServerContext) {
         late,
       ]);
       if (!opened) {
-        logger.warn("Canvas is still starting; this agent opens without it");
+        console.warn(
+          "[paseo-canvas] Canvas is still starting; this agent opens without it",
+        );
         missed.add(request.agentId);
         reopening = paseo;
         scheduleReopen();

@@ -1,12 +1,9 @@
 import { useEffect, useState } from "react";
 import { Image, Text, View } from "react-native";
 import { Modal, ScrollView } from "@getpaseo/plugin/client/ui";
-import {
-  Button,
-  CodeBlock,
-  getClientHost,
-  useRpcQuery,
-} from "paseo-plugin-helper/client";
+import { useRpc } from "@getpaseo/plugin/client";
+import { Button, CodeBlock } from "./ui";
+import { useRpcQuery } from "./rpc";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
   isSvgSource,
@@ -136,7 +133,6 @@ export function Graphic({
           <CodeBlock
             code={input.source}
             language={svg ? "xml" : "latex"}
-            copyable={false}
           />
         </Modal.Content>
       </Modal>
@@ -181,7 +177,7 @@ export function DocumentImage({
     { workspaceId: workspaceId ?? "unavailable", src },
     { enabled: local && !!workspaceId, retry: false, staleTime: Infinity },
   );
-  const render = getClientHost().useRpc(renderGraphic);
+  const render = useRpc(renderGraphic);
   const [attempt, setAttempt] = useState(0);
   // Native clients cannot draw SVG. When a remote image does not load, this
   // device fetches it as SVG text and the daemon rasterizes it.

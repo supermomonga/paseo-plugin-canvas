@@ -170,8 +170,7 @@ const mediaResult = vi.hoisted(() => ({
   error: new Error("描画または読み込みに失敗"),
   refetch: vi.fn(),
 }));
-vi.mock("paseo-plugin-helper/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("paseo-plugin-helper/client")>()),
+vi.mock("../client/rpc", () => ({
   useRpcQuery: (contract: { name: string }, input: unknown) => {
     queries.inputs(contract.name, input);
     if (contract.name === "canvas.review.recipients") return queries.recipients;
@@ -192,19 +191,12 @@ vi.mock("paseo-plugin-helper/client", async (importOriginal) => ({
   },
 }));
 import {
-  initClientHelpers,
-  PluginThemeProvider,
+  CanvasThemeProvider,
   Button,
   Tabs,
   Badge,
   CodeBlock,
-} from "paseo-plugin-helper/client";
-initClientHelpers({
-  Icon: () => null,
-  Modal: Object.assign(() => null, { Content: () => null }),
-  useRpc: (contract) => async (input) => reviewCalls(contract.name, input),
-  useToast: () => ({ show: () => {}, copied: () => {}, error: () => {} }),
-});
+} from "../client/ui";
 import { parseDocument } from "../server/document";
 import { Markdown, safeLink } from "../client/markdown";
 import { ReviewDocument } from "../client/review";
@@ -239,13 +231,13 @@ test("GFM renders table, tasks, strikethrough and code as native text; HTML rema
   let view!: ReactTestRenderer;
   await act(async () => {
     view = create(
-      <PluginThemeProvider theme={theme}>
+      <CanvasThemeProvider theme={theme}>
         <Markdown
           document={parseDocument(content)}
           theme={theme}
           onError={() => {}}
         />
-      </PluginThemeProvider>,
+      </CanvasThemeProvider>,
     );
   });
   expect(view.root.findAllByType(CodeBlock)).toHaveLength(1);
@@ -331,7 +323,7 @@ async function openCanvas(view: ReactTestRenderer) {
 }
 
 test.each([false, true])(
-  "list/detail navigation uses helper controls and preserves source and metadata access (compact=%s)",
+  "list/detail navigation uses Canvas controls and preserves source and metadata access (compact=%s)",
   async (compact) => {
     let view!: ReactTestRenderer;
     await act(async () => {
@@ -490,7 +482,7 @@ test("tables use measured content widths, preserve column alignment, and scroll 
   let view!: ReactTestRenderer;
   await act(async () => {
     view = create(
-      <PluginThemeProvider theme={theme}>
+      <CanvasThemeProvider theme={theme}>
         <Markdown
           theme={theme}
           onError={() => {}}
@@ -498,7 +490,7 @@ test("tables use measured content widths, preserve column alignment, and scroll 
             "| Character | Relationship |\n| :--- | ---: |\n| 鹿目まどか | 全ての中心。ほむらに執着され、さやかの親友、マミの後輩 |\n\n> | A | B | C |\n> | --- | --- | --- |\n> | 1 | 2 | 3 |",
           )}
         />
-      </PluginThemeProvider>,
+      </CanvasThemeProvider>,
     );
   });
   const scrolls = view.root
@@ -633,7 +625,7 @@ test("Markdown keeps link styling and both closed and initially open details tog
   let view!: ReactTestRenderer;
   await act(async () => {
     view = create(
-      <PluginThemeProvider theme={theme}>
+      <CanvasThemeProvider theme={theme}>
         <Markdown
           theme={theme}
           onError={() => {}}
@@ -641,7 +633,7 @@ test("Markdown keeps link styling and both closed and initially open details tog
             "[**重要**と`code`](https://example.com)\n\n<details>\n<summary>補足</summary>\n\n非表示の本文\n\n</details>\n\n<details open>\n<summary>開いた補足</summary>\n\n初期表示の本文\n\n</details>",
           )}
         />
-      </PluginThemeProvider>,
+      </CanvasThemeProvider>,
     );
   });
   const link = view.root
@@ -671,7 +663,7 @@ test("a heading link expands its enclosing details before scrolling, and missing
   let view!: ReactTestRenderer;
   await act(async () => {
     view = create(
-      <PluginThemeProvider theme={theme}>
+      <CanvasThemeProvider theme={theme}>
         <Markdown
           theme={theme}
           onNavigate={navigate}
@@ -680,7 +672,7 @@ test("a heading link expands its enclosing details before scrolling, and missing
             "[移動](#見出し) [不明](#unknown)\n\n<details>\n<summary>閉じた詳細</summary>\n\n## 見出し\n\n中身\n\n</details>",
           )}
         />
-      </PluginThemeProvider>,
+      </CanvasThemeProvider>,
       {
         createNodeMock: () => ({
           measureLayout: (_root: unknown, success: Function) => success(0, 320),
@@ -707,7 +699,7 @@ test("media errors remain visible and offer retry without hiding source access",
   let view!: ReactTestRenderer;
   await act(async () => {
     view = create(
-      <PluginThemeProvider theme={theme}>
+      <CanvasThemeProvider theme={theme}>
         <Graphic
           input={{
             kind: "math",
@@ -727,7 +719,7 @@ test("media errors remain visible and offer retry without hiding source access",
           width={320}
           workspaceId="workspace-a"
         />
-      </PluginThemeProvider>,
+      </CanvasThemeProvider>,
     );
   });
   expect(JSON.stringify(view.toJSON())).toContain("Failed to render");
@@ -738,192 +730,48 @@ test("media errors remain visible and offer retry without hiding source access",
   await act(async () => view.unmount());
 });
 
-test("Mermaid uses native views, supports zoom/reset and source inspection without an RPC", async () => {
-  const { Mermaid } = await import("../client/mermaid/viewer");
+test("Mermaid blocks are drawn by Paseo's renderer, including syntax Canvas used to reject", async () => {
+  const content =
+    "```mermaid\nflowchart LR\nA[計画] --> B[実装]\n```\n\n```mermaid\nsequenceDiagram\nA->>B: hello\nloop retry\nend\n```";
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
-      <PluginThemeProvider
+      <CanvasThemeProvider
         theme={theme}
         layout={{ compact: true, platform: "ios" }}
       >
-        <Mermaid
-          source={"flowchart LR\nA[計画] --> B[実装]"}
+        <Markdown
+          document={parseDocument(content)}
           theme={theme}
-          width={280}
+          onError={() => {}}
         />
-      </PluginThemeProvider>,
+      </CanvasThemeProvider>,
     );
   });
-  const buttons = () => tree.root.findAllByType(Button);
-  const scale = () =>
-    tree.root
-      .findAllByType("Text" as any)
-      .find((node) =>
-        String(node.props.accessibilityLabel).startsWith("Zoom "),
-      )!.props.children;
-  const initial = scale().join("");
-  await act(async () => {
-    buttons()
-      .find((node) => node.props.label === "Zoom in")!
-      .props.onPress();
-  });
-  expect(scale().join("")).not.toBe(initial);
-  await act(async () => {
-    buttons()
-      .find((node) => node.props.label === "Fit to view")!
-      .props.onPress();
-  });
-  expect(scale().join("")).toBe(initial);
-  await act(async () => {
-    buttons()
-      .find((node) => node.props.label === "Show code")!
-      .props.onPress();
-  });
-  await act(async () =>
-    tree.root
-      .findByProps({ testID: "mermaid-popup-body" })
-      .props.onLayout({ nativeEvent: { layout: { width: 950, height: 700 } } }),
+  const diagrams = tree.root.findAll(
+    (node) => node.props.testID === "mermaid-diagram",
   );
-  expect(tree.root.findByType(CodeBlock).props.code).toContain("A[計画]");
-  expect(JSON.stringify(tree.toJSON())).not.toContain("iframe");
-  await act(async () => tree.unmount());
-});
-
-test("Mermaid exposes unsupported sequence blocks instead of showing an incomplete diagram", async () => {
-  const { Mermaid } = await import("../client/mermaid/viewer");
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <PluginThemeProvider
-        theme={theme}
-        layout={{ compact: true, platform: "android" }}
-      >
-        <Mermaid
-          source={"sequenceDiagram\nA->>B: hello\nloop retry\nend"}
-          theme={theme}
-          width={280}
-        />
-      </PluginThemeProvider>,
-    );
-  });
-  // Paseo's own Mermaid renderer draws what Canvas's subset cannot.
+  expect(diagrams).toHaveLength(2);
   expect(
-    tree.root.findAll((node) => node.props.testID === "mermaid-viewport"),
-  ).toHaveLength(0);
-  const markdown = tree.root.findByType("Markdown" as never);
-  expect(markdown.props.children).toBe(
-    "```mermaid\nsequenceDiagram\nA->>B: hello\nloop retry\nend\n```",
-  );
-  expect(JSON.stringify(tree.toJSON())).toContain(
-    "Shown with Paseo's Mermaid renderer",
-  );
-  expect(
-    tree.root.findAll(
-      (node) =>
-        node.props.accessibilityHint?.includes?.(
-          "Unsupported or unrecognized syntax",
-        ) && (node.type as unknown) === "Text",
+    diagrams.map(
+      (diagram) => diagram.findByType("Markdown" as never).props.children,
     ),
-  ).toHaveLength(1);
-  await act(async () => button(tree, "Show code").props.onPress());
-  expect(JSON.stringify(tree.toJSON())).toContain("Mermaid code");
+  ).toEqual([
+    "```mermaid\nflowchart LR\nA[計画] --> B[実装]\n```",
+    "```mermaid\nsequenceDiagram\nA->>B: hello\nloop retry\nend\n```",
+  ]);
+  // Paseo's renderer owns zoom and source view; Canvas adds no controls.
+  expect(tree.root.findAllByType(Button)).toHaveLength(0);
+  expect(tree.root.findAllByType(CodeBlock)).toHaveLength(0);
   await act(async () => tree.unmount());
 });
 
 test("the Mermaid fence outlasts backtick runs inside the diagram", async () => {
-  const { mermaidFence } = await import("../client/mermaid/viewer");
+  const { mermaidFence } = await import("../client/markdown");
   expect(mermaidFence("graph TD\nA[\"````\"]-->B")).toBe(
     "`````mermaid\ngraph TD\nA[\"````\"]-->B\n`````",
   );
 });
-
-test.each(["web", "ios", "android"] as const)(
-  "Mermaid on %s preserves document scrolling, handles pinch/pan and refits after resize",
-  async (platform) => {
-    nativePlatform.OS = platform;
-    const { DiagramViewport } = await import("../client/mermaid/viewer");
-    const { diagramModel } = await import("../shared/mermaid/model");
-    const { fitted } = await import("../shared/mermaid/viewport");
-    const model = diagramModel(
-      "flowchart LR\nA[Planning] --> B[Review] --> C[Implementation] --> D[Verification]",
-    );
-    let tree!: ReactTestRenderer;
-    await act(async () => {
-      tree = create(
-        <PluginThemeProvider theme={theme} layout={{ compact: true, platform }}>
-          <DiagramViewport
-            model={model}
-            theme={theme}
-            width={280}
-            height={220}
-          />
-        </PluginThemeProvider>,
-      );
-    });
-    const viewport = () =>
-      tree.root.findByProps({ testID: "mermaid-viewport" });
-    const drawing = () =>
-      viewport().findAllByType("View" as never)[1].props.style;
-    const touch = (xs: number[]) => ({
-      nativeEvent: {
-        touches: xs.map((x) => ({
-          pageX: x + 20,
-          pageY: 150,
-          locationX: x,
-          locationY: 100,
-        })),
-      },
-    });
-    const gesture = (dx: number, dy = 0) => ({ dx, dy });
-    expect(
-      viewport().props.onMoveShouldSetPanResponder(
-        touch([100]),
-        gesture(0, 20),
-      ),
-    ).toBe(false);
-    await act(async () => {
-      for (let i = 0; i < 3; i++)
-        tree.root
-          .findAllByType(Button)
-          .find((n) => n.props.label === "Zoom in")!
-          .props.onPress();
-    });
-    expect(
-      viewport().props.onMoveShouldSetPanResponder(touch([100]), gesture(20)),
-    ).toBe(true);
-    const before = drawing().left;
-    await act(async () => {
-      viewport().props.onPanResponderGrant(touch([100]), gesture(10));
-      viewport().props.onPanResponderMove(touch([120]), gesture(30));
-    });
-    expect(drawing().left - before).toBeCloseTo(20);
-    const scale = drawing().transform[0].scale;
-    expect(
-      viewport().props.onStartShouldSetPanResponder(touch([80, 180])),
-    ).toBe(true);
-    await act(async () => {
-      viewport().props.onPanResponderGrant(touch([80, 180]), gesture(0));
-      viewport().props.onPanResponderMove(touch([55, 205]), gesture(0));
-    });
-    expect(drawing().transform[0].scale).toBeCloseTo(scale * 1.5);
-    const pinchedX = drawing().left;
-    await act(async () => {
-      viewport().props.onPanResponderMove(touch([100]), gesture(30));
-      viewport().props.onPanResponderMove(touch([90]), gesture(20));
-    });
-    expect(drawing().left - pinchedX).toBeCloseTo(-10);
-    await act(async () =>
-      viewport().props.onLayout({
-        nativeEvent: { layout: { width: 200, height: 220 } },
-      }),
-    );
-    expect(drawing().transform[0].scale).toBeCloseTo(
-      fitted(model, { width: 200, height: 220 }).scale,
-    );
-    await act(async () => tree.unmount());
-  },
-);
 
 test.each(["web", "ios", "android"] as const)(
   "document images on %s use shared size API and ignore stale loads",
@@ -936,9 +784,9 @@ test.each(["web", "ios", "android"] as const)(
       loads.push(success);
     });
     const render = (src: string) => (
-      <PluginThemeProvider theme={theme}>
+      <CanvasThemeProvider theme={theme}>
         <DocumentImage src={src} alt="テスト画像" theme={theme} width={240} />
-      </PluginThemeProvider>
+      </CanvasThemeProvider>
     );
     let tree!: ReactTestRenderer;
     await act(async () => {
@@ -1011,9 +859,9 @@ test.each(["ios", "android", "web"] as const)(
         : undefined,
     );
     const render = (src: string) => (
-      <PluginThemeProvider theme={theme}>
+      <CanvasThemeProvider theme={theme}>
         <DocumentImage src={src} alt="バッジ" theme={theme} width={240} />
-      </PluginThemeProvider>
+      </CanvasThemeProvider>
     );
     let tree!: ReactTestRenderer;
     try {
@@ -1069,7 +917,7 @@ test("workspace SVGs and SVG fences use the daemon's rasterized size and keep th
   try {
     await act(async () => {
       tree = create(
-        <PluginThemeProvider theme={theme}>
+        <CanvasThemeProvider theme={theme}>
           <DocumentImage
             src="docs/diagram.svg"
             alt="構成図"
@@ -1077,7 +925,7 @@ test("workspace SVGs and SVG fences use the daemon's rasterized size and keep th
             width={240}
             workspaceId="workspace-a"
           />
-        </PluginThemeProvider>,
+        </CanvasThemeProvider>,
       );
     });
     expect(Image.getSize).not.toHaveBeenCalled();
@@ -1091,13 +939,13 @@ test("workspace SVGs and SVG fences use the daemon's rasterized size and keep th
       '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300"/>';
     await act(async () => {
       tree = create(
-        <PluginThemeProvider theme={theme}>
+        <CanvasThemeProvider theme={theme}>
           <Markdown
             document={parseDocument(`\`\`\`svg\n${fence}\n\`\`\`\n`)}
             theme={theme}
             onError={() => {}}
           />
-        </PluginThemeProvider>,
+        </CanvasThemeProvider>,
       );
     });
     expect(queries.inputs).toHaveBeenCalledWith("canvas.render_graphic", {
@@ -1117,7 +965,7 @@ test("workspace SVGs and SVG fences use the daemon's rasterized size and keep th
     // Review targets add a 2px border and 8px padding on each side.
     await act(async () => {
       tree = create(
-        <PluginThemeProvider theme={theme}>
+        <CanvasThemeProvider theme={theme}>
           <Markdown
             document={parseDocument(`\`\`\`svg\n${fence}\n\`\`\`\n`)}
             theme={theme}
@@ -1131,7 +979,7 @@ test("workspace SVGs and SVG fences use the daemon's rasterized size and keep th
               wrap: (_node, child) => child,
             }}
           />
-        </PluginThemeProvider>,
+        </CanvasThemeProvider>,
       );
     });
     expect(
@@ -1142,194 +990,6 @@ test("workspace SVGs and SVG fences use the daemon's rasterized size and keep th
     await act(async () => tree?.unmount());
   }
 });
-
-test.each(["web", "ios", "android"] as const)(
-  "Mermaid popup on %s fills measured space, switches to complete source and closes",
-  async (platform) => {
-    nativePlatform.OS = platform;
-    const { Mermaid, DiagramViewport } = await import(
-      "../client/mermaid/viewer"
-    );
-    const source = "sequenceDiagram\nA->>B: 共有";
-    let tree!: ReactTestRenderer;
-    await act(async () => {
-      tree = create(
-        <PluginThemeProvider
-          theme={theme}
-          layout={{ compact: platform !== "web", platform }}
-        >
-          <Mermaid source={source} theme={theme} width={320} />
-        </PluginThemeProvider>,
-      );
-    });
-    await act(async () => button(tree, "Pop out").props.onPress());
-    const popup = tree.root.findByProps({ testID: "mermaid-popup" });
-    expect(popup.props.style).toMatchObject({ flex: 1, margin: 12 });
-    await act(async () =>
-      tree.root.findByProps({ testID: "mermaid-popup-body" }).props.onLayout({
-        nativeEvent: { layout: { width: 950, height: 640 } },
-      }),
-    );
-    const diagram = popup.findByType(DiagramViewport);
-    expect(diagram.props.height).toBeUndefined();
-    expect(diagram.props.width).toBe(950);
-    const viewport = popup.findByProps({ testID: "mermaid-viewport" });
-    expect(viewport.props.style.flex).toBe(1);
-    await act(async () =>
-      viewport.props.onLayout({
-        nativeEvent: { layout: { width: 950, height: 550 } },
-      }),
-    );
-    await act(async () =>
-      diagram
-        .findAllByType(Button)
-        .find((n) => n.props.label === "Show code")!
-        .props.onPress(),
-    );
-    expect(tree.root.findAllByType("NativeModal" as never)).toHaveLength(1);
-    expect(popup.findByType(CodeBlock).props).toMatchObject({
-      code: source,
-      maxHeight: 640,
-    });
-    await act(async () =>
-      tree.root.findByType("NativeModal" as never).props.onRequestClose(),
-    );
-    expect(tree.root.findAllByProps({ testID: "mermaid-popup" })).toHaveLength(
-      0,
-    );
-    await act(async () => button(tree, "Show code").props.onPress());
-    await act(async () => button(tree, "Close").props.onPress());
-    expect(tree.root.findAllByProps({ testID: "mermaid-popup" })).toHaveLength(
-      0,
-    );
-    await act(async () => tree.unmount());
-  },
-);
-
-test("wheel zoom is local, follows the pointer, normalizes wheel units and cleans up", async () => {
-  const { DiagramViewport } = await import("../client/mermaid/viewer");
-  const { diagramModel } = await import("../shared/mermaid/model");
-  let listener: ((event: any) => void) | undefined;
-  const target = {
-    addEventListener: vi.fn((_type, callback) => {
-      listener = callback;
-    }),
-    removeEventListener: vi.fn((_type, callback) => {
-      if (listener === callback) listener = undefined;
-    }),
-    getBoundingClientRect: () => ({
-      left: 200,
-      top: 100,
-      width: 600,
-      height: 440,
-    }),
-  };
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <PluginThemeProvider theme={theme}>
-        <DiagramViewport
-          model={diagramModel(
-            "flowchart LR\nA[Planning] --> B[Review] --> C[Implementation] --> D[Verification]",
-          )}
-          theme={theme}
-          width={300}
-          height={220}
-        />
-      </PluginThemeProvider>,
-      {
-        createNodeMock: (element) =>
-          (element.props as { testID?: string }).testID === "mermaid-viewport"
-            ? target
-            : null,
-      },
-    );
-  });
-  expect(target.addEventListener).toHaveBeenCalledWith(
-    "wheel",
-    expect.any(Function),
-    { passive: false },
-  );
-  const drawing = () =>
-    tree.root
-      .findByProps({ testID: "mermaid-viewport" })
-      .findAllByType("View" as never)[1].props.style;
-  await act(async () => {
-    for (let n = 0; n < 3; n++) button(tree, "Zoom in").props.onPress();
-  });
-  const before = drawing();
-  const event = (deltaY: number, deltaMode = 0) => ({
-    deltaY,
-    deltaMode,
-    clientX: 500,
-    clientY: 320,
-    preventDefault: vi.fn(),
-    stopPropagation: vi.fn(),
-  });
-  const up = event(-120);
-  await act(async () => listener!(up));
-  expect(up.preventDefault).toHaveBeenCalledOnce();
-  expect(up.stopPropagation).toHaveBeenCalledOnce();
-  expect(drawing().transform[0].scale).toBeCloseTo(
-    before.transform[0].scale * Math.exp(0.24),
-  );
-  expect((150 - drawing().left) / drawing().transform[0].scale).toBeCloseTo(
-    (150 - before.left) / before.transform[0].scale,
-  );
-  await act(async () => listener!(event(120)));
-  expect(drawing().transform[0].scale).toBeCloseTo(before.transform[0].scale);
-  await act(async () => listener!(event(-3, 1)));
-  expect(drawing().transform[0].scale).toBeCloseTo(
-    before.transform[0].scale * Math.exp(3 * 16 * 0.002),
-  );
-  const horizontal = event(0);
-  await act(async () => listener!(horizontal));
-  expect(horizontal.preventDefault).not.toHaveBeenCalled();
-  await act(async () => {
-    for (let n = 0; n < 20; n++) listener!(event(-1, 2));
-  });
-  expect(drawing().transform[0].scale).toBe(4);
-  const atLimit = event(-100);
-  await act(async () => listener!(atLimit));
-  expect(atLimit.preventDefault).toHaveBeenCalledOnce();
-  const previous = listener;
-  await act(async () =>
-    tree.root
-      .findByProps({ testID: "mermaid-viewport" })
-      .props.onLayout({ nativeEvent: { layout: { width: 200, height: 220 } } }),
-  );
-  expect(target.removeEventListener).toHaveBeenCalledWith("wheel", previous);
-  const current = listener;
-  await act(async () => tree.unmount());
-  expect(target.removeEventListener).toHaveBeenCalledWith("wheel", current);
-  expect(listener).toBeUndefined();
-});
-
-test.each(["ios", "android"] as const)(
-  "%s does not access Web wheel APIs",
-  async (platform) => {
-    nativePlatform.OS = platform;
-    const { DiagramViewport } = await import("../client/mermaid/viewer");
-    const { diagramModel } = await import("../shared/mermaid/model");
-    const add = vi.fn();
-    let tree!: ReactTestRenderer;
-    await act(async () => {
-      tree = create(
-        <PluginThemeProvider theme={theme}>
-          <DiagramViewport
-            model={diagramModel("flowchart LR\nA-->B")}
-            theme={theme}
-            width={300}
-            height={220}
-          />
-        </PluginThemeProvider>,
-        { createNodeMock: () => ({ addEventListener: add }) },
-      );
-    });
-    expect(add).not.toHaveBeenCalled();
-    await act(async () => tree.unmount());
-  },
-);
 
 test.each([false, true])(
   "timeline action selects an unmounted or mounted panel in its workspace (compact=%s)",
@@ -1530,7 +1190,7 @@ function reviewCanvas(content: string): Canvas {
 }
 function reviewView(canvas: Canvas, mode: "preview" | "source") {
   return (
-    <PluginThemeProvider theme={theme}>
+    <CanvasThemeProvider theme={theme}>
       <ReviewDocument
         canvas={canvas}
         document={parseDocument(canvas.content)}
@@ -1538,7 +1198,7 @@ function reviewView(canvas: Canvas, mode: "preview" | "source") {
         theme={theme}
         fontSize={14}
       />
-    </PluginThemeProvider>
+    </CanvasThemeProvider>
   );
 }
 
@@ -1850,14 +1510,14 @@ test("repeated Go to target opens a details ancestor that the user closed", asyn
     select: () => {},
   };
   const render = (navigationRequest: number) => (
-    <PluginThemeProvider theme={theme}>
+    <CanvasThemeProvider theme={theme}>
       <Markdown
         document={document}
         theme={theme}
         onError={() => {}}
         review={{ ...bindings, navigationRequest }}
       />
-    </PluginThemeProvider>
+    </CanvasThemeProvider>
   );
   let view!: ReactTestRenderer;
   await act(async () => {
@@ -2071,7 +1731,7 @@ test("send dialog handles unavailable recipients, interruption consent, errors, 
     onRecorded = vi.fn();
   let view!: ReactTestRenderer;
   const render = () => (
-    <PluginThemeProvider theme={theme}>
+    <CanvasThemeProvider theme={theme}>
       <ReviewSendDialog
         workspaceId={fixture.canvas.workspaceId}
         canvasId={fixture.canvas.canvasId}
@@ -2082,7 +1742,7 @@ test("send dialog handles unavailable recipients, interruption consent, errors, 
         onSent={onSent}
         onRecorded={onRecorded}
       />
-    </PluginThemeProvider>
+    </CanvasThemeProvider>
   );
   try {
     await act(async () => {
@@ -2162,7 +1822,7 @@ test.each(["failed", "unknown"] as const)(
     try {
       await act(async () => {
         view = create(
-          <PluginThemeProvider theme={theme}>
+          <CanvasThemeProvider theme={theme}>
             <ReviewSendDialog
               workspaceId={fixture.canvas.workspaceId}
               canvasId={fixture.canvas.canvasId}
@@ -2173,7 +1833,7 @@ test.each(["failed", "unknown"] as const)(
               onSent={onSent}
               onRecorded={onRecorded}
             />
-          </PluginThemeProvider>,
+          </CanvasThemeProvider>,
         );
       });
       reviewCalls.mockResolvedValueOnce(sentDelivery(fixture.threads, status));

@@ -54,9 +54,11 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
   expect(created.data).toMatchObject({
     saved: true,
     revision: 1,
-    diagnostics: [],
+    warnings: [],
     timeline: "queued",
   });
+  // Canvas does not check Markdown or diagrams after a save (ADR 19).
+  expect(created.data).not.toHaveProperty("diagnostics");
   expect(enqueue).toHaveBeenCalledWith(
     "agent-a",
     expect.objectContaining({ action: "created", workspaceId: "workspace-a" }),
@@ -149,28 +151,21 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
       })
     ).status,
   ).toBe(403);
-  const invalid = await call(a.client, "canvas.update", {
+  const diagram = await call(a.client, "canvas.update", {
     canvasId,
     lockToken: lease.data.lockToken,
     expectedRevision: 2,
     content:
       "# Plan\n\n```mermaid\nsequenceDiagram\nA->>B: hi\nloop retry\nend\n```",
   });
-  expect(invalid.error).not.toBe(true);
-  // Paseo's Mermaid renderer shows the diagram; the agent learns that Canvas
-  // could not check it, with the first line outside Canvas's subset.
-  expect(invalid.data).toMatchObject({
-    saved: true,
+  expect(diagram.error).not.toBe(true);
+  // Paseo's Mermaid renderer draws every diagram; Canvas reports nothing.
+  expect(diagram.data).toEqual({
+    canvasId,
     revision: 3,
-    diagnosticCount: 1,
-  });
-  expect(invalid.data.diagnostics).toHaveLength(1);
-  expect(invalid.data.diagnostics[0]).toMatchObject({
-    severity: "info",
-    code: "MERMAID_STANDARD_RENDERER",
-    line: 6,
-    endLine: 7,
-    source: "loop retry",
+    saved: true,
+    warnings: [],
+    timeline: "queued",
   });
   expect(enqueue).toHaveBeenLastCalledWith(
     "agent-a",
@@ -182,11 +177,7 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
     expectedRevision: 3,
     title: "Renamed",
   });
-  expect(renamed.data).toMatchObject({
-    saved: true,
-    revision: 4,
-    diagnosticCount: 1,
-  });
+  expect(renamed.data).toMatchObject({ saved: true, revision: 4 });
   expect(enqueue).toHaveBeenLastCalledWith(
     "agent-a",
     expect.objectContaining({ title: "Renamed", revision: 4 }),
@@ -202,7 +193,6 @@ test("real HTTP MCP: scoped A/B sharing, locks, third workspace isolation and cr
   expect(repaired.data).toMatchObject({
     saved: true,
     revision: 5,
-    diagnostics: [],
     timeline: "failed",
   });
   expect(repaired.data.warnings[0].code).toBe("TIMELINE_QUEUE_FAILED");

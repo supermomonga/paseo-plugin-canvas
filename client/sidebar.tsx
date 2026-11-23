@@ -4,11 +4,8 @@ import type {
   PluginPopoverProps,
   PluginSidebarItemProps,
 } from "@getpaseo/plugin/client";
-import {
-  EmptyState,
-  PluginThemeProvider,
-  useRpcQuery,
-} from "paseo-plugin-helper/client";
+import { CanvasThemeProvider, EmptyState } from "./ui";
+import { useRpcQuery } from "./rpc";
 import { recentCanvases } from "../shared/contracts";
 import { CanvasRow } from "./panel";
 import { CANVAS_SCREEN, canvasScreenParams, useHostNotice } from "./screen";
@@ -55,7 +52,7 @@ export function RecentCanvasesPopover({
     </Text>
   );
   return (
-    <PluginThemeProvider theme={theme} layout={layout}>
+    <CanvasThemeProvider theme={theme} layout={layout}>
       <View
         style={{
           width: layout.compact ? undefined : 320,
@@ -87,7 +84,6 @@ export function RecentCanvasesPopover({
           message(t("common.loading"), colors.foregroundMuted)
         ) : recent.data.items.length === 0 ? (
           <EmptyState
-            icon={null}
             title={t("sidebar.empty")}
             description={t("sidebar.emptyHint")}
             style={{ padding: 16 }}
@@ -114,6 +110,6 @@ export function RecentCanvasesPopover({
           </ScrollView>
         )}
       </View>
-    </PluginThemeProvider>
+    </CanvasThemeProvider>
   );
 }

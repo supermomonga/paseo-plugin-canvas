@@ -23,13 +23,13 @@ import {
 } from "@getpaseo/plugin/client";
 import {
   Badge,
+  CanvasThemeProvider,
   EmptyState,
   KeyValue,
-  PluginThemeProvider,
   Tabs,
-  useRpcQuery,
-  usePluginTheme,
-} from "paseo-plugin-helper/client";
+  useCanvasTheme,
+} from "./ui";
+import { useRpcQuery } from "./rpc";
 import {
   getCanvas,
   idSchema,
@@ -145,7 +145,7 @@ export function CanvasPanel(props: CanvasPanelProps) {
         if (measuredWidth > 0) setWidth(measuredWidth);
       }}
     >
-      <PluginThemeProvider
+      <CanvasThemeProvider
         theme={props.theme}
         layout={{ ...props.layout, compact: singlePane }}
       >
@@ -158,7 +158,7 @@ export function CanvasPanel(props: CanvasPanelProps) {
             singlePane={singlePane}
           />
         </LinkOpenerProvider>
-      </PluginThemeProvider>
+      </CanvasThemeProvider>
     </View>
   );
 }
@@ -350,7 +350,6 @@ function WorkspaceCanvas({
               )}
               {list.data?.items.length === 0 && (
                 <EmptyState
-                  icon={null}
                   title={t("panel.empty")}
                   description={t("panel.emptyHint")}
                   style={{ flex: 1, padding: 16 }}
@@ -570,8 +569,6 @@ function CanvasDetail({
                       ? t("panel.editing")
                       : t("panel.unlocked")
                   }
-                  variant="neutral"
-                  styleVariant="outline"
                   style={{
                     height: 20,
                     alignSelf: "center",
@@ -672,7 +669,6 @@ function CanvasDetail({
                 ]}
                 activeTab={mode}
                 onTabChange={(id) => setMode(id as "preview" | "source")}
-                mode="fit"
                 style={{ borderRadius: 6 }}
               />
             </View>
@@ -728,7 +724,7 @@ function CanvasDetails({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { isCompact } = usePluginTheme();
+  const { compact: isCompact } = useCanvasTheme();
   const { t } = useText();
   const fields: [string, string | number][] = [
     [t("details.title"), canvas.title],
@@ -757,7 +753,6 @@ function CanvasDetails({
             key={label}
             label={label}
             value={value}
-            stackOnCompact
             labelStyle={{
               ...(isCompact ? metaText : labelStyle),
               color: theme.colors.foregroundMuted,

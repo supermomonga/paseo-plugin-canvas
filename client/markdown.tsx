@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Text, View, type TextStyle } from "react-native";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
+import {
+  Icon,
+  Markdown as HostMarkdown,
+  ScrollView,
+} from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Button, CodeBlock } from "paseo-plugin-helper/client";
+import { Button, CodeBlock } from "./ui";
 import type { Root, Element, ElementContent, RootContent } from "hast";
 import { textContent, externalLink, type AlertType } from "../shared/document";
 import { DocumentImage, Graphic } from "./media";
-import { Mermaid } from "./mermaid/viewer";
 import { useLinkOpener } from "./links";
 import { useText } from "./i18n";
 import {
@@ -19,6 +22,16 @@ import { reviewTargets } from "../shared/review-targets";
 import { tableColumnWidths } from "../shared/table";
 
 export const safeLink = externalLink;
+
+/** A Mermaid fence longer than any backtick run inside the diagram. */
+export function mermaidFence(source: string) {
+  const longest = Math.max(
+    2,
+    ...[...source.matchAll(/`+/g)].map((run) => run[0].length),
+  );
+  const fence = "`".repeat(longest + 1);
+  return `${fence}mermaid\n${source}\n${fence}`;
+}
 const mono = Platform.OS === "ios" ? "Menlo" : "monospace";
 const element = (node: RootContent): node is Element => node.type === "element";
 const classes = (node: Element) =>
@@ -409,14 +422,12 @@ export function Markdown({
         const language = classes(code)
           .find((c) => c.startsWith("language-"))
           ?.slice(9);
+        // Paseo draws every diagram, with its own zoom and source view (ADR 19).
         if (language === "mermaid")
           return (
-            <Mermaid
-              key={key}
-              source={textContent(code).trim()}
-              theme={theme}
-              width={contentWidth}
-            />
+            <View key={key} testID="mermaid-diagram">
+              <HostMarkdown>{mermaidFence(textContent(code).trim())}</HostMarkdown>
+            </View>
           );
         if (language === "math" || classes(code).includes("math-display"))
           return graphic(code, true, key);
@@ -463,7 +474,6 @@ export function Markdown({
             key={key}
             code={textContent(code).replace(/\n$/, "")}
             language={language}
-            copyable={false}
             textStyle={{ fontSize: 12, lineHeight: 22 }}
           />
         );

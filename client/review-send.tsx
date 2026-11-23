@@ -3,7 +3,9 @@ import { Text, View } from "react-native";
 import { Icon, Modal, useToast } from "@getpaseo/plugin/client/ui";
 import { SettingsSelect } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Button, getClientHost, useRpcQuery } from "paseo-plugin-helper/client";
+import { useRpc } from "@getpaseo/plugin/client";
+import { Button } from "./ui";
+import { useRpcQuery } from "./rpc";
 import {
   getReviewRecipients,
   sendReview,
@@ -88,9 +90,8 @@ export function ReviewSendDialog({
   onRecorded: () => void;
   onSent: (ids: string[]) => void;
 }) {
-  const host = getClientHost();
-  const send = host.useRpc(sendReview),
-    retry = host.useRpc(retryReview);
+  const send = useRpc(sendReview),
+    retry = useRpc(retryReview);
   const recipients = useRpcQuery(
     getReviewRecipients,
     { workspaceId },

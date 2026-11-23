@@ -13,7 +13,7 @@ import {
   useToast,
 } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { getClientHost } from "paseo-plugin-helper/client";
+import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   beginCanvasEdit,
@@ -98,13 +98,12 @@ export function useCanvasEditor(
   workspaceId: string,
   selection: CanvasSelection,
 ) {
-  const host = getClientHost();
-  const begin = host.useRpc(beginCanvasEdit),
-    create = host.useRpc(createUserCanvas),
-    save = host.useRpc(saveCanvasEdit),
-    renew = host.useRpc(renewCanvasEdit),
-    cancel = host.useRpc(cancelCanvasEdit),
-    remove = host.useRpc(deleteUserCanvas);
+  const begin = useRpc(beginCanvasEdit),
+    create = useRpc(createUserCanvas),
+    save = useRpc(saveCanvasEdit),
+    renew = useRpc(renewCanvasEdit),
+    cancel = useRpc(cancelCanvasEdit),
+    remove = useRpc(deleteUserCanvas);
   const queryClient = useQueryClient();
   const text = useText();
   const currentText = useRef(text);
@@ -166,7 +165,7 @@ export function CanvasEditForm({
   const colors = theme.colors;
   const toast = useToast();
   const { t } = useText();
-  const preview = getClientHost().useRpc(previewCanvasDraft);
+  const preview = useRpc(previewCanvasDraft);
   const previewRpc = useRef(preview);
   previewRpc.current = preview;
   const [mode, setMode] = useState<"edit" | "preview">("edit");

@@ -14,7 +14,9 @@ import {
 } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Button, useRpcQuery, getClientHost } from "paseo-plugin-helper/client";
+import { useRpc } from "@getpaseo/plugin/client";
+import { Button } from "./ui";
+import { useRpcQuery } from "./rpc";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Root, Element } from "hast";
 import type { Canvas } from "../shared/contracts";
@@ -100,9 +102,8 @@ export function ReviewDocument({
   const scope = { workspaceId: canvas.workspaceId, canvasId: canvas.canvasId };
   const { t } = useText();
   const colors = theme.colors,
-    client = useQueryClient(),
-    host = getClientHost();
-  const mutate = host.useRpc(mutateReview);
+    client = useQueryClient();
+  const mutate = useRpc(mutateReview);
   const query = useRpcQuery(getReviews, scope, { retry: false });
   const recipients = useRpcQuery(
     getReviewRecipients,

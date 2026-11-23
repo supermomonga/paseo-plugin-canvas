@@ -12,7 +12,7 @@ Requires Paseo 0.17.1 or later on both the daemon host and the app. Agents need 
 
 ## What you can do
 
-- Write and preview GitHub-flavored Markdown with tables, task lists, alerts, footnotes, images, SVG, TeX formulas and Mermaid diagrams. Flowcharts and sequence diagrams in Canvas's supported form can be zoomed and panned; other Mermaid diagrams are shown with Paseo's own Mermaid renderer.
+- Write and preview GitHub-flavored Markdown with tables, task lists, alerts, footnotes, images, SVG, TeX formulas and Mermaid diagrams. Paseo's own Mermaid renderer draws every diagram, with zoom and a full-screen view.
 - Select paragraphs, tables, diagrams or several blocks, leave comments, and send selected comments to any agent session in the workspace. Agents can reply in the discussion; you resolve it.
 - Attach a canvas to a prompt from the composer's attachment menu. The prompt carries a snapshot of the canvas text at that moment.
 - Get a timeline row with an **Open canvas** button when an agent creates or updates a canvas.

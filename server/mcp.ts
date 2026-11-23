@@ -13,7 +13,6 @@ import { CanvasError } from "./errors";
 import type { CanvasStore } from "./store";
 import type { Sessions } from "./sessions";
 import type { CanvasActivityQueue } from "./activity";
-import { diagnoseMarkdown } from "./diagnostics";
 import type { Actor } from "../shared/contracts";
 import { agentReplySchema } from "../shared/review";
 export async function startMcp(
@@ -30,17 +29,6 @@ export async function startMcp(
     value: Awaited<ReturnType<CanvasStore["update"]>>,
   ) {
     const warnings: { code: string; message: string }[] = [];
-    let diagnosis: ReturnType<typeof diagnoseMarkdown> | null = null;
-    try {
-      diagnosis = diagnoseMarkdown(value.snapshot.content);
-    } catch (error) {
-      console.error("[paseo-canvas] Markdown diagnostics failed", error);
-      warnings.push({
-        code: "DIAGNOSTICS_FAILED",
-        message:
-          "Canvas saved, but rendering diagnostics could not be completed.",
-      });
-    }
     let timeline: "queued" | "disabled" | "failed" = "queued";
     try {
       const notify = (await options.timelineNotifications?.()) ?? true;
@@ -51,7 +39,7 @@ export async function startMcp(
           title: value.snapshot.metadata.title,
           revision: value.revision,
           action,
-          // Every diagram displays since ADR 18; the version 1 row keeps the field.
+          // Canvas no longer checks diagrams (ADR 19); the version 1 row keeps the field.
           warningCount: 0,
           savedAt: value.snapshot.metadata.updatedAt,
         });
@@ -72,8 +60,6 @@ export async function startMcp(
       canvasId: value.canvasId,
       revision: value.revision,
       saved: true,
-      diagnosticsStatus: diagnosis ? "complete" : "failed",
-      ...diagnosis,
       warnings,
       timeline,
     };
@@ -120,7 +106,7 @@ export async function startMcp(
       { name: "paseo-canvas", version: "0.1.0" },
       {
         instructions:
-          "Shared GFM documents in your Paseo workspace. Use canvas.list/get to read. Before update/delete acquire a lock, use its lockToken and the current expectedRevision. Locks last five minutes; renew before expiry and release after editing. On conflict, read again. Canvas files are outside the project. Never write them directly. Create/update return rendering diagnostics with document line numbers. Mermaid diagrams outside Canvas's interactive subset are shown with Paseo's standard Mermaid renderer, which Canvas cannot validate; check their syntax yourself. SVG in ```svg fences or workspace .svg images is shown as a static picture with a transparent background; scripts, animation and referenced external files are ignored. saved:true means the write succeeded even when warnings are present; do not repeat canvas.create. Unless the user turned timeline notifications off, a dedicated timeline row lets users open the canvas inside Paseo.",
+          "Shared GFM documents in your Paseo workspace. Use canvas.list/get to read. Before update/delete acquire a lock, use its lockToken and the current expectedRevision. Locks last five minutes; renew before expiry and release after editing. On conflict, read again. Canvas files are outside the project. Never write them directly. Mermaid diagrams are shown with Paseo's Mermaid renderer; Canvas does not validate them, so check their syntax yourself. SVG in ```svg fences or workspace .svg images is shown as a static picture with a transparent background; scripts, animation and referenced external files are ignored. saved:true means the write succeeded even when warnings are present; do not repeat canvas.create. Unless the user turned timeline notifications off, a dedicated timeline row lets users open the canvas inside Paseo.",
       },
     );
     const transport = new StreamableHTTPServerTransport({
@@ -190,7 +176,7 @@ export async function startMcp(
       "canvas.create",
       {
         description:
-          "Create a persistent GFM canvas. Returns saved revision, Mermaid rendering diagnostics and repair hints, and timeline notification status.",
+          "Create a persistent GFM canvas. Returns saved revision, warnings and timeline notification status.",
         inputSchema: z
           .object({ title: titleSchema, content: contentSchema })
           .strict(),
@@ -266,7 +252,7 @@ export async function startMcp(
       "canvas.update",
       {
         description:
-          "Save title and/or GFM content with a valid edit lock and expectedRevision. Returns saved revision, Mermaid diagnostics and repair hints, and timeline notification status.",
+          "Save title and/or GFM content with a valid edit lock and expectedRevision. Returns saved revision, warnings and timeline notification status.",
         inputSchema: editInputSchema
           .extend({
             title: titleSchema.optional(),

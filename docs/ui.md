@@ -1,6 +1,6 @@
 # CanvasのUI方針
 
-Paseo本体の [docs/design.md](https://github.com/getpaseo/paseo/blob/f22a37e613e965c8ebc02e1f5565e21fd72eaf2f/docs/design.md) を基準にする（参照commit: `f22a37e613e965c8ebc02e1f5565e21fd72eaf2f`）。プラグインSDKの公開APIと `paseo-plugin-helper/client` を使い、本体の内部コンポーネントを直接importしたり、コピーして独自に保守したりしない。
+Paseo本体の [docs/design.md](https://github.com/getpaseo/paseo/blob/f22a37e613e965c8ebc02e1f5565e21fd72eaf2f/docs/design.md) を基準にする（参照commit: `f22a37e613e965c8ebc02e1f5565e21fd72eaf2f`）。プラグインSDKとReact Nativeの公開APIだけを使い、本体の内部コンポーネントを直接importしたり、コピーして独自に保守したりしない。SDKにない操作部品は `client/ui.tsx` にCanvas独自の部品として持つ（ADR 19）。
 
 ## 表示言語
 
@@ -18,17 +18,17 @@ Paseo本体の [docs/design.md](https://github.com/getpaseo/paseo/blob/f22a37e61
 - **一覧行**: 個別の枠やアクセント色の縁取りを付けない。選択・hover・押下は公開テーマの `surface2` で示す。行全体を押せるようにし、先頭の文書アイコンと末尾のchevronで本文への移動を示す。タイトルは `foreground`、補足は `foregroundMuted`。フォーカスは色付きの輪郭で示す。長いタイトルは1行に省略し、アクセシビリティラベルには全文を残す。
 - **文字と余白**: 見出しと一覧の文字は14px／行高20px、補足は12px／行高16px、操作ボタンは12px／行高16px、文書本文15px（iOS/Androidは16px）、コード12pxを基準にする。構造を示すラベルだけ500の太さにする。余白は本体の4・8・12・16・24pxの段階を使う。Markdown文書自体の見出しと強調は本文の意味を維持する。
 - **文書の幅**: 本体のファイルプレビュー同様、Markdownの読み取り領域は最大820px。原文は作業領域の幅を使う。表は自身の表示領域と各セルの折り返し前の描画幅を実測する。列ごとの最大描画幅を基準に、短い列は内容が収まる幅に留め、折り返しが必要な列へ余白を配分する。全列が折り返さずに収まる場合は、内容幅の比率で表全体を広げる。引用・リストなどの内側ではその余白を除いた幅に収める。長い列は最低180px、短い列は実測した内容幅を確保し、その合計が収まらない場合に表の中で横スクロールする。コード片も横スクロールできる。
-- **操作部品**: ボタンはhelperの `Button`、表示切り替えは `Tabs`。戻る・コピー・詳細は `secondary` とし、通常状態から枠・背景・Lucideアイコンで操作可能と分かるようにする。状態説明を同じボタン形状にしない。ボタンはすべて `size="sm"` とし、高さ・余白・アイコンサイズはhelperの標準に任せる。タブにも固定高を設定しない。操作列は Edit / Delete / Copy を左に置き、表示切り替えの Tabs を右端に寄せる。スマホ向けの最小タッチ領域はhelperのレスポンシブ設定に従う。ツールバーの文字の行高は `client/controls.tsx` に集約する。独自の主要アクションや警告色を増やさない。
-- **状態**: 編集者は常に見える位置に置く。編集ロック自体は通常の状態なので、helperの中立色 `Badge` と補足文字で示す。省略していないタイトル・ID・リビジョン・各ロック時刻は「詳細」で開くPaseo標準の `Modal` にまとめ、`KeyValue` で表示する。標準Modalのシート表示・安全領域・キーボード処理はホストに任せる。
+- **操作部品**: ボタンは `client/ui.tsx` の `Button`、表示切り替えは `Tabs`。戻る・コピー・詳細は `secondary` とし、通常状態から枠・背景・Lucideアイコンで操作可能と分かるようにする。状態説明を同じボタン形状にしない。ボタンはすべて `size="sm"` とし、高さ・余白・アイコンサイズは `Button` の標準に任せる。タブにも固定高を設定しない。操作列は Edit / Delete / Copy を左に置き、表示切り替えの Tabs を右端に寄せる。最小タッチ領域は `CanvasThemeProvider` が決め、コンパクト表示とiOS/Androidでは44px、それ以外は28pxとする。ツールバーの文字の行高は `client/controls.tsx` に集約する。独自の主要アクションや警告色を増やさない。
+- **状態**: 編集者は常に見える位置に置く。編集ロック自体は通常の状態なので、中立色の `Badge` と補足文字で示す。省略していないタイトル・ID・リビジョン・各ロック時刻は「詳細」で開くPaseo標準の `Modal` にまとめ、`KeyValue` で表示する。標準Modalのシート表示・安全領域・キーボード処理はホストに任せる。
 - **通知**: コピー成功・失敗、リンクを開けない場合はホストの `useToast`。通知のために本文を押し下げない。
 - **読み込みとエラー**: 初回読み込みは短い文言。一覧・詳細に再取得ボタンは置かず、変更通知で自動更新する。読み取り失敗は自動再試行し、通知の接続が途切れた場合も復帰を試みる。取得失敗は一覧・本文それぞれの領域内に表示し、キャッシュ表示と初回失敗を区別する。選択中のCanvasが削除された場合はその状態を明示する。
-- **空の状態**: helperの `EmptyState` を使い、装飾アイコンを無効化する。短い説明を中央に置く。
+- **空の状態**: `EmptyState` で短い説明を中央に置く。装飾アイコンは付けない。
 
 ## 公開APIによる制約
 
 確認したPlugin SDK 0.17.3でも、`PluginTheme` が公開するのは11色のみ。本体の文字サイズ・余白・フォント、`surfaceSidebar` / `surface3` / `interactionHighlight` は公開されていない。このため本体の「Interface size」「Code size」を動的に追従することはできない。色は公開テーマに追従し、寸法は本体の既定値を参照する。
 
-本体の `Button`、`SegmentedControl`、`StatusBadge`、`LoadingSpinner`、`Alert`、`BackHeader` も公開されていない。0.13で公開された `Markdown` は文字列全体を描画するだけで、ブロック単位の選択やレビュー対象の指定、数式の描画、保存時の診断との一致を扱えないため、本文の表示には使わない。Canvas独自のレンダラーで描けないMermaid図の表示にだけ使う（ADR 18）。一般操作はhelperで共通化し、標準SDKの `Icon` / `Modal` / `ScrollView` / `useToast` / `copyText` を利用する。0.9以降で公開された設定画面用の `Settings*` と `ExternalLink`、0.11以降で公開されたサイドバー用の `SidebarRow` は、該当する画面でそのまま使う。helper beta.7のTabsやEmptyStateなど、公開propsで調整できない文字・形状・操作フィードバックの差は残る。SDKが将来これらを公開した時点で、公開された部品・トークンに移行する。非公開APIへの依存やhelper内部へのスタイル上書きは追加しない。
+本体の `Button`、`SegmentedControl`、`StatusBadge`、`LoadingSpinner`、`Alert`、`BackHeader` も公開されていない。0.13で公開された `Markdown` は文字列全体を描画するだけで、ブロック単位の選択やレビュー対象の指定、数式の描画を扱えないため、本文の表示には使わない。Mermaid図の表示にだけ使う（ADR 19）。ボタン・タブ・バッジ・コードブロック・キーと値・空の状態は `client/ui.tsx` で公開テーマの色とReact Nativeの部品から組み立て、標準SDKの `Icon` / `Modal` / `ScrollView` / `useToast` / `copyText` を利用する。外部の部品ライブラリには依存しない（ADR 19）。0.9以降で公開された設定画面用の `Settings*` と `ExternalLink`、0.11以降で公開されたサイドバー用の `SidebarRow` は、該当する画面でそのまま使う。本体の部品とは文字・形状・操作フィードバックに差が残る。SDKが将来これらを公開した時点で、公開された部品・トークンに移行する。非公開APIへの依存は追加しない。
 
 参照元:
 
@@ -41,15 +41,15 @@ Paseo本体の [docs/design.md](https://github.com/getpaseo/paseo/blob/f22a37e61
 
 ## 検証範囲
 
-`npm run check` で一覧・本文の遷移、幅の制約、コード切り替え、メタデータの表示、コピー通知、自動更新と再接続、別エージェントによる削除を検証する。`npm run visual:build` の開発用画面では実際のパネルとhelperを使い、明暗テーマ、デスクトップ・390px幅で確認する。
+`npm run check` で一覧・本文の遷移、幅の制約、コード切り替え、メタデータの表示、コピー通知、自動更新と再接続、別エージェントによる削除を検証する。`npm run visual:build` の開発用画面では実際のパネルと部品を使い、明暗テーマ、デスクトップ・390px幅で確認する。
 
-開発用画面のアイコンは本体と同じ `lucide-react-native`、配色は本体の標準明暗テーマを使う。Modal、通知、clipboard、RPCのホスト接続はfixtureであり、実際のPaseoのModal表示や通知、OS clipboard、iOS/Androidのジェスチャーの動作確認にはならない。実際のPaseoアプリ上での検証は別途必要。
+開発用画面のアイコンは本体と同じ `lucide-react-native`、配色は本体の標準明暗テーマを使う。Modal、通知、clipboard、RPC、`Markdown` のホスト接続はfixtureであり、実際のPaseoのModal表示や通知、OS clipboard、Mermaid図の描画、iOS/Androidのジェスチャーの動作確認にはならない。実際のPaseoアプリ上での検証は別途必要。
 
 ## 整列の検証
 
 目視に加えて、描画されたDOMの文字矩形を計測する。2026-09-11の1280×800の検証用Webビューでは、左右の見出し上端はどちらも59px、ロックの「編集中」とエージェント名はどちらも84.5px、プレビュー・コード・コピーはすべて137pxだった。同じ行でフォントが同じ要素の描画位置を比較した値であり、文字列を囲うコンテナーの中央だけを比較したものではない。この値は操作列を Preview / Code → Edit / Delete / Copy の順で並べていた時点の記録であり、現在は Edit / Delete / Copy を左、Preview / Code を右端に置き、コピーも他のボタンと同じ `size="sm"` である。現在の配置は変更のたびに再計測する。
 
-390px幅では画面外への横はみ出しがないこと、長いタイトルが操作ボタンを押し出さないことを確認する。helperのcompactタブ文字は11px固定で、ボタンの12pxとは差があるため、完全に同じフォント設定とは扱わない。Tabによるフォーカス移動とEnterによる一覧・本文の移動も実際のブラウザーで確認する。サンプルには通常の文書・ロックなしの文書・長いタイトルとエージェント名を含める。
+390px幅では画面外への横はみ出しがないこと、長いタイトルが操作ボタンを押し出さないことを確認する。`Tabs` のcompact時の文字は11pxで、ボタンの12pxとは差があるため、完全に同じフォント設定とは扱わない。Tabによるフォーカス移動とEnterによる一覧・本文の移動も実際のブラウザーで確認する。サンプルには通常の文書・ロックなしの文書・長いタイトルとエージェント名を含める。
 
 ## Markdownの表示
 
@@ -59,21 +59,21 @@ Paseo本体の [docs/design.md](https://github.com/getpaseo/paseo/blob/f22a37e61
 
 折りたたみには常時ボタンの外観と開閉アイコンを付ける。脚注・見出しリンクは下線で識別でき、閉じた領域への移動時は該当領域を開く。表と大きな数式は横スクロールし、画像は本文幅に収める。タスクは読み取り専用として表示する。
 
-ライブラリ選定: react-native-markdown-displayは保守終了、後継enriched-markdownはホスト側へのネイティブモジュール導入が必要。react-markdownはDOM向けで、単独ではiOS/Androidの表示に使えない。このためremarkを解析に採用し、表示は公開SDK・helper・React Nativeで実装する。MermaidはMITライセンスの `paseo-plugin-mermaid` から取り込んだパーサーと配置処理を使い、React NativeのViewとTextで描画する。独自に描画するのはフローチャート・シーケンス図の一部で、拡大・縮小・移動・ポップアップに対応する。それ以外の図（subgraph、`loop`／`alt`、ほかの図の種類など）は、SDKの `Markdown` に ` ```mermaid ` のコードブロックとして渡し、Paseo標準のMermaidレンダラーで表示する（ADR 18）。図の上部の帯に「Paseo の Mermaid レンダラーで表示しています」と **Show code** を置き、独自に描画できなかった理由はアクセシビリティヒントとして残す。フェンスは図の中のバッククォートより長くする。Canvasはこの記法を検証できないため、エージェントへの保存結果では警告ではなく情報として伝える。数式はサーバー側のMathJaxとresvg WASMでPNG化する。描画にChromium・WebView・追加ネイティブモジュールは必要ない。
+ライブラリ選定: react-native-markdown-displayは保守終了、後継enriched-markdownはホスト側へのネイティブモジュール導入が必要。react-markdownはDOM向けで、単独ではiOS/Androidの表示に使えない。このためremarkを解析に採用し、表示は公開SDK・React Nativeで実装する。Mermaidは、SDKの `Markdown` に ` ```mermaid ` のコードブロックとして渡し、Paseo標準のMermaidレンダラーで表示する（ADR 19）。フェンスは図の中のバッククォートより長くする。Canvasは図の周りに操作や説明を足さず、記法も検証しない。エージェントへの保存結果にも図の診断は含めない。数式はサーバー側のMathJaxとresvg WASMでPNG化する。数式とSVGの描画にChromium・WebView・追加ネイティブモジュールは必要ない。Mermaid図はPaseoが自身の仕組み（Electron／Webはiframe、iOS／AndroidはWebView）で描くため、Canvasの依存は増えない。
 
 SVGはワークスペース内のファイル、` ```svg ` のコードブロック、外部URLの画像の3経路で表示する。React NativeのImageはiOS/AndroidでSVGを描けないため、デーモンが数式と同じresvg WASMでPNG化し、表示サイズを添えて返す。クライアントは返されたサイズを本文幅に合わせて縮小し、`Image.getSize` で測り直さない。外部URLはまずImageで直接読み込み、失敗した場合だけ閲覧中の端末がSVGとして取得し直してデーモンに送る。デーモン自身は外部URLへ接続しない。Electron／Webで直接描けたSVGはベクターのまま表示する。コードブロックのSVGは数式と同じく **Show source** で原文を確認できる。透過部分は本文の背景をそのまま見せ、テーマに合わせた背景は敷かない。
 
 レビュー対象の各ブロックは枠線2pxと余白8pxを左右に持つ。画像・図・数式に渡す幅はこの分を差し引き、レビュー表示で本文からはみ出さないようにする。
 
-## 図の操作と両プラットフォーム対応
+## 図の操作
 
-Mermaidの縮小・拡大・全体を収める・ポップアップ・コードを表示にはhelperのButtonとホストIconを使う。`size="sm"` を使い、狭い領域では操作列を折り返す。スマホ向けの押下領域はhelperに任せる。操作は図の上部に集め、「コードを表示」は右寄せにする。SDK Modalは外枠の幅を指定できないため、図とコードのポップアップはReact Native標準Modalを使い、安全領域の内側に12pxの余白を取る。iOS/Webは標準SafeAreaView、AndroidはModalのシステムバーを透過しない設定で表示領域を確保する。図は操作列を除く残りの高さを使い、コードも本文領域の高さまでスクロールできる。閉じるボタン・Androidの戻る・WebのEscで閉じる。
+Mermaid図の拡大・縮小、全画面表示、コード表示はPaseoのレンダラーに任せる（ADR 19）。Paseo 0.17.3のソース（`packages/app/src/components/markdown/fence/mermaid/`）では次のとおり動作する。
 
-描画はReact NativeのView・Text、操作はPanResponderを使う。通常サイズで図が収まるときは1本指の移動を奪わず本文スクロールに任せ、図がはみ出す方向のドラッグを処理する。2本指で倍率と位置を変えられる。表示領域の幅・高さが変わると図全体を収め直す。図の文字は配置と線の関係を保つためOSの文字倍率では変えず、図のズームで拡大する。本文や操作ラベルはこの制限の対象外。
+- **Electron／Web**: 本文内の図に拡大・縮小・リセット・コード表示・全画面表示のボタンが付き、修飾キーを押しながらのホイールで拡大縮小する。全画面表示ではホイールだけで拡大縮小し、Escで閉じる。
+- **iOS／Android**: 本文内には最大480px高の図を操作なしで表示する。タップすると全画面で開き、ピンチで最大8倍まで拡大できる。全画面表示ではコード表示に切り替えられる。
+- **描けない図**: Paseoはコードのまま表示する。
 
-Electron向けとスマホ向けに異なる描画方式を持たない。製品クライアントはReact・React Native公開API・Paseo公開SDK・helperに依存する。開発用fixtureでのみ使う `react-native-svg` は製品クライアントには含まれない。自動検証ではweb・ios・android設定で描画とPanResponderの入力を確認するが、モック検証は実機のタッチ応答やPaseoのシート内ジェスチャーとの競合を保証しない。
-
-Electron／Webの描画エリアでは、Viewの公開refから取得した要素だけにホイールリスナーを登録する。ReactのonWheelはpassiveで本文スクロールを抑止できないため、`passive: false` を指定し、ポインター位置を中心に拡大縮小する。リスナーはサイズ変更時・アンマウント時に解除する。Web固有の処理は `Platform.OS === "web"` に限定し、iOS／Androidでは実行しない。ツールバーや本文上の通常スクロールには介入しない。
+Canvasはこれらの挙動を変えない。レビューの対象を選んでいる間は、ほかのブロックと同じく図の中の操作を無効にする。Paseoのレンダラーを実際のアプリで動かした確認はしていない。
 
 ## Canvasの自動更新
 

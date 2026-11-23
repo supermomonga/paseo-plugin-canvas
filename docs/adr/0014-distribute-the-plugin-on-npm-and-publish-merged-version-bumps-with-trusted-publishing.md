@@ -6,6 +6,8 @@ date: 2026-10-09
 links:
 - target: 6
   kind: amends
+- target: 19
+  kind: amendedby
 ---
 
 # Distribute the plugin on npm and publish merged version bumps with trusted publishing

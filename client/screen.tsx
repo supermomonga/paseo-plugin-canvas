@@ -8,7 +8,7 @@ import {
   type PluginScreenParams,
   type PluginScreenProps,
 } from "@getpaseo/plugin/client";
-import { EmptyState, PluginThemeProvider } from "paseo-plugin-helper/client";
+import { CanvasThemeProvider, EmptyState } from "./ui";
 import { idSchema } from "../shared/contracts";
 import { CanvasPanel } from "./panel";
 import { createCanvasSelection } from "./selection";
@@ -64,27 +64,26 @@ export function CanvasScreen({
   }, [selection, workspaceId, canvasId]);
   if (!workspaceId)
     return (
-      <PluginThemeProvider theme={theme} layout={layout}>
+      <CanvasThemeProvider theme={theme} layout={layout}>
         <View style={{ flex: 1, backgroundColor: theme.colors.surface0 }}>
           <EmptyState
-            icon={null}
             title={t("screen.noWorkspace")}
             description={t("screen.noWorkspaceHint")}
             style={{ flex: 1, padding: 16 }}
           />
         </View>
-      </PluginThemeProvider>
+      </CanvasThemeProvider>
     );
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.surface0 }}>
-      <PluginThemeProvider theme={theme} layout={layout}>
+      <CanvasThemeProvider theme={theme} layout={layout}>
         <WorkspaceBar
           workspaceId={workspaceId}
           theme={theme}
           host={host}
           navigation={navigation}
         />
-      </PluginThemeProvider>
+      </CanvasThemeProvider>
       <CanvasPanel
         workspaceId={workspaceId}
         theme={theme}

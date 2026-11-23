@@ -1,6 +1,6 @@
-import { Button, type ButtonProps } from "paseo-plugin-helper/client";
+import { Button, type ButtonProps } from "./ui";
 
-// Keep text baselines explicit; let helper size the controls.
+// Keep text baselines explicit; let Button size the controls.
 export const HEADER_HEIGHT = 64;
 export const titleText = {
   fontSize: 14,

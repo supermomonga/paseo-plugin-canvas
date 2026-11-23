@@ -28,7 +28,6 @@ try {
   await writeFile(path.join(dir, "index.client.ts"), `
 import { createCanvasSelection } from "./client/selection";
 import { createCanvasEditor } from "./client/editing-state";
-import { diagramModel, isMermaidDiagnosticError } from "./shared/mermaid/model";
 function assert(ok, message) { if (!ok) throw new Error(message); }
 export default function () {
   const editor = createCanvasEditor("workspace", {});
@@ -46,16 +45,6 @@ export default function () {
   assert(createCanvasSelection().get("workspace") === null, "installation isolation");
   stop(); selection.select("workspace", null);
   assert(calls === 1 && selection.get("workspace") === null, "unsubscribe and clear");
-  assert(diagramModel("flowchart LR\\nA-->B").kind === "flow", "flowchart");
-  assert(diagramModel("sequenceDiagram\\nA->>B: hello").kind === "sequence", "sequence");
-  for (const source of ["gantt", "sequenceDiagram\\nA->>B: hello\\nloop retry\\nend"]) {
-    let failure;
-    try { diagramModel(source); } catch (error) { failure = error; }
-    assert(isMermaidDiagnosticError(failure), "diagnostic classification");
-    assert(failure instanceof Error && failure.message && failure.hint, "diagnostic fields");
-    if (source !== "gantt") assert(failure.sourceLines.join("|") === "loop retry|end", "diagnostic lines");
-  }
-  assert(!isMermaidDiagnosticError(new TypeError("unexpected")), "unexpected error");
   return () => {};
 }
 `);
@@ -108,7 +97,7 @@ assert(selection.get("workspace")==="canvas","production selection");
 cleanup();
 assert(panels.length===0 && renderers.length===0 && commands.length===0 && slash.length===0 && attachments.length===0,"plugin cleanup");
 (0,eval)(${JSON.stringify(probe.clientBundle)})(require).default()();
-print("Hermes native smoke passed: startup, registrations, selection, user drafts and discard confirmation, Mermaid layouts and diagnostics, cleanup");
+print("Hermes native smoke passed: startup, registrations, selection, user drafts and discard confirmation, cleanup");
 }).catch(function(error){print(error.stack);});
 `;
   const script = path.join(dir, "smoke.js");

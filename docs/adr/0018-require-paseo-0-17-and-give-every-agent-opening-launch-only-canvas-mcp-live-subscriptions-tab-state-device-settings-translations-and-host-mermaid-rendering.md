@@ -18,6 +18,8 @@ links:
   kind: amends
 - target: 15
   kind: amends
+- target: 19
+  kind: amendedby
 ---
 
 # Require Paseo 0.17 and give every agent opening launch-only Canvas MCP, live subscriptions, tab state, device settings, translations and host Mermaid rendering
