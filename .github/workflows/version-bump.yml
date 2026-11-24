@@ -43,7 +43,7 @@ jobs:
           node-version: "22"
           package-manager-cache: false
 
-      # npm version keeps package-lock.json in step with package.json.
+      # npm version keeps npm-shrinkwrap.json in step with package.json.
       - name: Bump version
         id: bump-version
         env:
@@ -69,7 +69,7 @@ jobs:
           branch: release/v${{ steps.bump-version.outputs.version }}
           add-paths: |
             package.json
-            package-lock.json
+            npm-shrinkwrap.json
           commit-message: "chore: release paseo-canvas ${{ steps.bump-version.outputs.version }}"
           title: "Release v${{ steps.bump-version.outputs.version }}"
           body: |

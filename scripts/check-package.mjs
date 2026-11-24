@@ -62,6 +62,18 @@ try {
     !existsSync(join(installation, "node_modules/vitest")),
     "Paseo installs production dependencies only",
   );
+  // The registry reads the lock, overviews and listing assets from the package (ADR 20).
+  assert.equal(typeof manifest.icon, "string", "The manifest must name an icon");
+  assert.ok(manifest.media?.length > 0, "The manifest must name listing media");
+  for (const file of [
+    "npm-shrinkwrap.json",
+    "OVERVIEW.md",
+    "OVERVIEW.zh-CN.md",
+    manifest.icon,
+    ...manifest.media,
+  ]) {
+    assert.ok(existsSync(join(plugin, file)), `The package must contain ${file}`);
+  }
 
   // Dependencies are hoisted outside the plugin directory, unlike a Git checkout.
   const { serverBundle, clientBundle } = await compilePlugin({

@@ -78,4 +78,4 @@ Use the release compiler to detect client/server import violations and test wide
 
 ## More Information
 
-The detailed, evolving visual rules belong in [UI guidance](../ui.md), including button sizes, icons, spacing and popup layout. See [client entry](../../index.client.tsx) and [locked dependencies](../../package-lock.json). Revisit component selection when the public SDK exposes appropriate controls/tokens; revisit localization only with an explicit product-scope change.
+The detailed, evolving visual rules belong in [UI guidance](../ui.md), including button sizes, icons, spacing and popup layout. See [client entry](../../index.client.tsx) and [locked dependencies](../../npm-shrinkwrap.json). Revisit component selection when the public SDK exposes appropriate controls/tokens; revisit localization only with an explicit product-scope change.

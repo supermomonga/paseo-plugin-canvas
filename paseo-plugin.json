@@ -1,7 +1,21 @@
 {
   "id": "paseo-canvas",
   "name": "Canvas",
-  "description": "Write, review and share Markdown documents with agents in your workspace",
+  "description": "Write, review and share Markdown documents with the agents in your Paseo workspace.",
+  "icon": "assets/icon.png",
+  "media": [
+    "assets/listing/1-overview.webp",
+    "assets/listing/2-markdown.webp",
+    "assets/listing/3-comment.webp",
+    "assets/listing/4-agent.webp",
+    "assets/listing/5-timeline.webp",
+    "assets/listing/6-locks.webp"
+  ],
+  "translations": {
+    "zh-CN": {
+      "description": "与 Paseo 工作区中的智能体一起编写、审阅和共享 Markdown 文档。"
+    }
+  },
   "requirements": {
     "paseo": ">=0.17.1"
   },

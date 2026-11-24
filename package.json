@@ -3,12 +3,14 @@
   "version": "0.3.0",
   "license": "MIT",
   "type": "module",
-  "description": "Workspace-shared GFM canvases for Paseo",
+  "description": "Write, review and share Markdown documents with the agents in your Paseo workspace.",
   "keywords": [
     "paseo",
     "paseo-plugin",
     "canvas",
     "markdown",
+    "documents",
+    "review",
     "mcp"
   ],
   "homepage": "https://github.com/supermomonga/paseo-plugin-canvas#readme",
@@ -20,11 +22,14 @@
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",
+    "OVERVIEW.*.md",
+    "assets/",
     "index.client.tsx",
     "index.server.ts",
     "client/",
     "server/",
     "shared/",
+    "npm-shrinkwrap.json",
     "!server/assets/*.otf"
   ],
   "scripts": {
@@ -35,6 +40,7 @@
     "build": "node scripts/build-renderer.mjs",
     "setup": "node scripts/build-renderer.mjs",
     "visual:serve": "node --import tsx tests/visual/serve.ts",
+    "listing": "bash tests/listing/capture.sh",
     "pretypecheck": "npm run build",
     "test:native": "node tests/native-smoke.mjs",
     "test:package": "node scripts/check-package.mjs",
