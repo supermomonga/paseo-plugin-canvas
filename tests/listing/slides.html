@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Canvas listing slides</title>
+<style>
+  @font-face {
+    font-family: "Inter";
+    src: url(inter.woff2) format("woff2");
+    font-weight: 100 900;
+  }
+  :root {
+    --ink: linear-gradient(95deg, #a6f5cb 0%, #3ddc97 55%, #2bb8a6 100%);
+    --muted: #a1a5a4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    width: 1920px;
+    height: 1200px;
+    overflow: hidden;
+    position: relative;
+    font-family: "Inter", sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    color: #fafafa;
+    background:
+      radial-gradient(900px 700px at 8% -4%, rgba(46, 190, 127, 0.2), transparent 70%),
+      radial-gradient(900px 800px at 100% 105%, rgba(43, 184, 166, 0.12), transparent 70%),
+      #090d0c;
+  }
+  .grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+    background-size: 64px 64px;
+    -webkit-mask-image: radial-gradient(1200px 900px at 30% 30%, #000 20%, transparent 80%);
+  }
+  .stroke {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 1920px;
+    height: 220px;
+    opacity: 0.32;
+  }
+  .gradient {
+    background: var(--ink);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  /* Screenshot crops: the 2x screenshot is scaled to the displayed width. */
+  .shot {
+    background-repeat: no-repeat;
+    image-rendering: auto;
+  }
+  .window {
+    position: relative;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #181b1a;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow:
+      0 40px 110px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(0, 0, 0, 0.5);
+  }
+  .halo {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(61, 220, 151, 0.22), transparent);
+    filter: blur(20px);
+  }
+  /* Hero */
+  .hero { position: absolute; inset: 0; text-align: center; }
+  .hero .icon { width: 112px; height: 112px; margin: 64px auto 0; display: block; }
+  .hero .eyebrow { margin-top: 22px; font-size: 34px; font-weight: 650; letter-spacing: -0.01em; }
+  .hero h1 {
+    margin: 14px 0 0;
+    font-size: 92px;
+    line-height: 1.02;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    font-variation-settings: "opsz" 32;
+  }
+  .hero p { margin: 22px auto 0; width: 1180px; font-size: 31px; line-height: 1.42; color: var(--muted); }
+  /* Feature slides */
+  .copy { position: absolute; left: 112px; top: 0; bottom: 0; width: 660px; display: flex; flex-direction: column; justify-content: center; }
+  .brand { position: absolute; left: 112px; top: 92px; display: flex; align-items: center; gap: 18px; font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
+  .brand img { width: 58px; height: 58px; }
+  .copy .eyebrow { font-size: 34px; font-weight: 650; letter-spacing: -0.01em; }
+  .copy h2 {
+    margin: 18px 0 0;
+    font-size: 104px;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -0.05em;
+    font-variation-settings: "opsz" 32;
+  }
+  .copy p { margin: 34px 0 0; font-size: 33px; line-height: 1.4; color: var(--muted); }
+  .stage { position: absolute; left: 840px; right: 90px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 28px; }
+  /* Send dialog inset; the header stands in for Paseo's modal header. */
+  .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 4px 24px; font-size: 17px; font-weight: 500; }
+  .dialog-head svg { width: 18px; height: 18px; }
+  .chat { width: 940px; padding: 30px 32px 32px; }
+  .chat .who { font-size: 16px; color: var(--muted); margin-bottom: 10px; }
+  .chat .msg { font-size: 20px; line-height: 1.5; color: #e9ecea; margin-bottom: 22px; }
+</style>
+<div class="grid"></div>
+<svg class="stroke" viewBox="0 0 1920 220" fill="none">
+  <defs>
+    <linearGradient id="s" x1="0" x2="1">
+      <stop offset="0" stop-color="#3ddc97" stop-opacity="0" />
+      <stop offset="0.35" stop-color="#3ddc97" />
+      <stop offset="1" stop-color="#2bb8a6" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <path d="M-20 170 C 260 140, 420 196, 640 150 S 1000 92, 1180 148 S 1560 196, 1940 120" stroke="url(#s)" stroke-width="3" />
+</svg>
+<div id="slide"></div>
+<script>
+  const shots = {
+    overview: { w: 1440, h: 900 },
+    markdown: { w: 1360, h: 1250 },
+    comment: { w: 1360, h: 850 },
+    send: { w: 1360, h: 850 },
+    reply: { w: 1360, h: 1120 },
+    activity: { w: 760, h: 360 },
+    edit: { w: 1120, h: 760 },
+  };
+  // Crop (x, y, w, h) in CSS pixels of the screenshot, displayed `width` pixels wide.
+  function crop(name, [x, y, w, h], width, extra = "") {
+    const s = width / w;
+    const size = shots[name];
+    return `<div class="shot" style="width:${width}px;height:${Math.round(h * s)}px;background-image:url(shot-${name}.png);background-size:${size.w * s}px ${size.h * s}px;background-position:${-x * s}px ${-y * s}px;${extra}"></div>`;
+  }
+  function feature({ eyebrow, title, accent, text, stage }) {
+    return `
+      <div class="brand"><img src="icon.png" alt="" />Canvas</div>
+      <div class="copy">
+        <div class="eyebrow gradient">${eyebrow}</div>
+        <h2>${title}<br /><span class="gradient">${accent}</span></h2>
+        <p>${text}</p>
+      </div>
+      <div class="stage">${stage}</div>`;
+  }
+  const close = `<svg viewBox="0 0 24 24" fill="none" stroke="#fafafa" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+  const slides = {
+    "1-overview": () => `
+      <div class="hero">
+        <img class="icon" src="icon.png" alt="" />
+        <div class="eyebrow gradient">Canvas for Paseo</div>
+        <h1>Documents you and<br />your agents share.</h1>
+        <p>Write, review and share Markdown in your workspace. Every agent in it can read and edit the same canvases.</p>
+        <div class="halo" style="left:260px;top:640px;width:1400px;height:700px"></div>
+        <div class="window" style="position:absolute;left:180px;top:610px;width:1560px;height:700px">
+          ${crop("overview", [0, 0, 1440, 646], 1560)}
+        </div>
+      </div>`,
+    "2-markdown": () =>
+      feature({
+        eyebrow: "GitHub-flavored Markdown",
+        title: "Plans that",
+        accent: "read well",
+        text: "Tables, alerts, task lists, footnotes, images, SVG, TeX formulas and Mermaid diagrams, drawn by Paseo.",
+        stage: `<div class="halo" style="width:1000px;height:900px;left:0;top:150px"></div>
+          <div class="window">${crop("markdown", [410, 196, 860, 1010], 900)}</div>`,
+      }),
+    "3-comment": () =>
+      feature({
+        eyebrow: "Comment mode",
+        title: "Comment on",
+        accent: "any block",
+        text: "Select paragraphs, tables, diagrams or several blocks, comment on them, then send the comments to an agent session.",
+        stage: `<div class="halo" style="width:1000px;height:800px;left:0;top:200px"></div>
+          <div style="position:relative">
+            <div class="window">${crop("comment", [404, 168, 852, 640], 940)}</div>
+            <div class="window" style="position:absolute;right:-56px;bottom:-70px;width:500px;box-shadow:0 30px 90px rgba(0,0,0,.8),0 0 0 1px rgba(61,220,151,.28)">
+              <div class="dialog-head">Send to agent ${close}</div>
+              ${crop("send", [440, 360, 474, 202], 500)}
+            </div>
+          </div>`,
+      }),
+    "4-agent": () =>
+      feature({
+        eyebrow: "Agent feedback",
+        title: "Agents reply",
+        accent: "in the thread",
+        text: "The agent updates the canvas and reports back next to your comment. Resolve the thread when you are satisfied.",
+        stage: `<div class="halo" style="width:1000px;height:900px;left:0;top:150px"></div>
+          <div class="window">${crop("reply", [410, 204, 850, 856], 900)}</div>`,
+      }),
+    "5-timeline": () =>
+      feature({
+        eyebrow: "In the agent’s timeline",
+        title: "Open it from",
+        accent: "the chat",
+        text: "When an agent creates or updates a canvas, its timeline shows a row that opens it. You can also attach a canvas to a prompt.",
+        stage: `<div class="halo" style="width:1000px;height:800px;left:0;top:200px"></div>
+          <div class="window chat">
+            <div class="who">Implement background indexing</div>
+            <div class="msg">I wrote the plan to a canvas, with the milestones, the rollout and a checklist. Comment on anything you want changed.</div>
+            ${crop("activity", [14, 14, 732, 90], 876)}
+            <div class="msg" style="margin:26px 0 22px">Added the rollout section you asked for.</div>
+            ${crop("activity", [14, 110, 732, 90], 876)}
+          </div>`,
+      }),
+    "6-locks": () =>
+      feature({
+        eyebrow: "Edit locks",
+        title: "One editor",
+        accent: "at a time",
+        text: "You and your agents take turns under a five&#8209;minute lock. Everyone else keeps reading the saved version.",
+        stage: `<div class="halo" style="width:1000px;height:800px;left:0;top:200px"></div>
+          <div class="window" style="align-self:flex-start;margin-left:30px">${crop("edit", [0, 0, 1120, 640], 1150)}</div>`,
+      }),
+  };
+  const id = new URLSearchParams(location.search).get("slide") ?? "1-overview";
+  document.getElementById("slide").innerHTML = slides[id]();
+</script>
+</html>

@@ -8,6 +8,8 @@ links:
   kind: amends
 - target: 19
   kind: amendedby
+- target: 20
+  kind: amendedby
 ---
 
 # Distribute the plugin on npm and publish merged version bumps with trusted publishing

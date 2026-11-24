@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B2622"/>
+      <stop offset="1" stop-color="#0C1210"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.48" r="0.55">
+      <stop offset="0" stop-color="#2FBF7F" stop-opacity="0.34"/>
+      <stop offset="0.55" stop-color="#1E7F57" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#0C1210" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="150" y1="120" x2="400" y2="400">
+      <stop offset="0" stop-color="#9BF2C4"/>
+      <stop offset="0.55" stop-color="#3DDC97"/>
+      <stop offset="1" stop-color="#2BB8A6"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <clipPath id="clip"><rect x="16" y="16" width="480" height="480" rx="112"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect x="16" y="16" width="480" height="480" fill="url(#tile)"/>
+    <rect x="16" y="16" width="480" height="480" fill="url(#halo)"/>
+  </g>
+  <rect x="17" y="17" width="478" height="478" rx="111" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
+  <g id="glyph" fill="none" stroke="url(#ink)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Sheet, open at the upper right where the pen crosses it -->
+    <path d="M300 122 H178 a34 34 0 0 0 -34 34 V356 a34 34 0 0 0 34 34 H322 a34 34 0 0 0 34 -34 V300"/>
+    <!-- Text lines -->
+    <path d="M200 196 H262"/>
+    <path d="M200 250 H236"/>
+    <path d="M200 304 H262"/>
+    <!-- Pen -->
+    <path d="M384 142 a28.3 28.3 0 0 1 40 40 L318 288 L272 302 L286 256 Z"/>
+    <path d="M362 164 L402 204"/>
+  </g>
+  <use href="#glyph" filter="url(#glow)" opacity="0.55"/>
+</svg>

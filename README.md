@@ -1,18 +1,29 @@
+<div align="center">
+
+<img src="assets/icon.png" alt="" height="96" />
+
 # paseo-canvas
 
 **Write, review, and share Markdown documents with agents in your Paseo workspace.**
 
-Keep plans, notes, and review discussions in one place. Ask an agent to write a document, edit it yourself, and send comments back for another pass. Other agents in the same workspace can read and update the same canvas, even in separate sessions.
-
 [Get started](#get-started) · [Usage](#usage) · [Supported content](#supported-content) · [Troubleshooting](#troubleshooting)
 
-![1](images/1.png)
+<img src="assets/listing/1-overview.webp" alt="Canvas for Paseo: documents you and your agents share" width="800" />
 
+</div>
 
-|Create a Canvas|Comment|Send to Agent|Agent gives feedback|
-|---|---|---|---|
-| ![1](images/1.png) | ![2](images/2.png) | ![3](images/3.png) | ![4](images/4.png) |
+Keep plans, notes, and review discussions in one place. Ask an agent to write a document, edit it yourself, and send comments back for another pass. Other agents in the same workspace can read and update the same canvas, even in separate sessions.
 
+<details>
+<summary>Screenshots</summary>
+
+![A canvas with an alert, a table, a task list and a TeX formula](assets/listing/2-markdown.webp)
+![A comment on a selected table, and the dialog that sends it to an agent session](assets/listing/3-comment.webp)
+![The agent's reply in the comment thread, next to the section it added](assets/listing/4-agent.webp)
+![Timeline rows that open the canvas an agent created or updated](assets/listing/5-timeline.webp)
+![Editing a canvas while another canvas is locked by an agent](assets/listing/6-locks.webp)
+
+</details>
 
 ## What you can do
 
