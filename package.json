@@ -1,6 +1,6 @@
 {
   "name": "paseo-canvas",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "type": "module",
   "description": "Write, review and share Markdown documents with the agents in your Paseo workspace.",
